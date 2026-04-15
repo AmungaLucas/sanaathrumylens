@@ -26,9 +26,9 @@ export const useBlogData = () => {
 
                 if (!postsRes.success) throw new Error(postsRes.error || 'Failed to load posts');
 
-                const articles = postsRes.data || [];
-                const events = eventsRes.success ? (eventsRes.data || []) : [];
-                const categories = categoriesRes.success ? (categoriesRes.data || []) : [];
+                const articles = postsRes.data?.posts || [];
+                const events = eventsRes.success ? (eventsRes.data?.events || []) : [];
+                const categories = categoriesRes.success ? (categoriesRes.data?.categories || []) : [];
 
                 // Derive recent stories, popular, featured from posts
                 const recentStories = articles.slice(0, 4);

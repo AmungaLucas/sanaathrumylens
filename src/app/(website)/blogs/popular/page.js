@@ -26,7 +26,7 @@ export default function PopularArticlesPage() {
                 throw new Error(data.error || 'Failed to load popular articles');
             }
 
-            const posts = data.data || [];
+            const posts = data.data?.posts || [];
 
             // Sort by combined popularity score (views + likes)
             const sortedPosts = [...posts].sort((a, b) => {

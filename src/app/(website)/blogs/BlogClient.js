@@ -181,7 +181,7 @@ export default function BlogClient({
                 return;
             }
 
-            const allPosts = data.data || [];
+            const allPosts = data.data?.posts || [];
 
             if (allPosts.length === 0) {
                 setHasMore(false);
@@ -208,7 +208,7 @@ export default function BlogClient({
 
             // Update state
             setCurrentPage(nextPage);
-            setHasMore(endIndex < (data.pagination?.total || allPosts.length));
+            setHasMore(endIndex < (data.data?.pagination?.total || allPosts.length));
 
             // Update URL to reflect the new page
             const urlParams = new URLSearchParams(searchParams.toString());

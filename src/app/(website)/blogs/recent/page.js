@@ -25,7 +25,7 @@ export default function RecentArticlesPage() {
                 throw new Error(data.error || 'Failed to load recent articles');
             }
 
-            setRecentPosts(data.data || []);
+            setRecentPosts(data.data?.posts || []);
         } catch (err) {
             console.error('Error fetching recent articles:', err);
             setError('Failed to load recent articles');
