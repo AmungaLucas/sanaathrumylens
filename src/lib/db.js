@@ -205,7 +205,9 @@ export async function query(sql, params = []) {
     throw new Error('Database not available');
   }
 
-  const [result] = await pool.execute(sql, params);
+  // Use pool.query() instead of pool.execute() — execute() uses prepared statements
+  // which can fail with certain MySQL versions/configurations on LIMIT/OFFSET params
+  const [result] = await pool.query(sql, params);
 
   // For SELECT queries, mysql2 returns [rows]
   if (Array.isArray(result)) {
