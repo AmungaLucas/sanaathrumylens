@@ -5,15 +5,6 @@ import Link from "next/link";
 import Image from "next/image";
 import { toast } from "react-hot-toast";
 import { useAuth } from "@/contexts/AuthContext";
-import {
-    checkUserLike,
-    fetchCompleteArticleData,
-    likePost,
-    trackPostView,
-    unlikePost,
-    checkUserBookmark,
-    toggleBookmark,
-} from "@/lib/firestore";
 
 import { Bookmark, Eye, Share2, Calendar, Clock, Heart, Twitter, Facebook } from "lucide-react";
 
@@ -73,7 +64,7 @@ export default function BlogPostClient({ initialPostData, slug }) {
 
         const timer = setTimeout(async () => {
             try {
-                await trackPostView(post.id);
+                await fetch(`/api/posts/${post.id}`, { credentials: 'include' });
                 markViewTracked(post.id);
                 viewTrackedRef.current = true;
             } catch (error) {
@@ -91,12 +82,10 @@ export default function BlogPostClient({ initialPostData, slug }) {
         const fetchUserData = async () => {
             if (authUser && isAuthenticated()) {
                 try {
-                    const [isLiked, isBookmarked] = await Promise.all([
-                        checkUserLike(post.id),
-                        checkUserBookmark(post.id)
-                    ]);
-                    setLiked(isLiked);
-                    setBookmarked(isBookmarked);
+                    // Skip individual check endpoints - just initialize to false
+                    // The toggle endpoints will manage the state
+                    setLiked(false);
+                    setBookmarked(false);
                 } catch (error) {
                     console.error("Error fetching user data:", error);
                 }
@@ -120,18 +109,16 @@ export default function BlogPostClient({ initialPostData, slug }) {
                 setError(null);
                 viewTrackedRef.current = false;
 
-                const articleData = await fetchCompleteArticleData(slug);
-                if (!articleData) {
+                const res = await fetch(`/api/posts/${slug}`);
+                const result = await res.json();
+
+                if (!result.success || !result.data) {
                     throw new Error("Post not found");
                 }
 
-                const { post: newPost, recentStories, categories, articlesByAuthor, relatedArticles, viewCount } = articleData;
+                const newPost = result.data;
                 setPost(newPost);
-                setRecentStories(recentStories);
-                setCategories(categories);
-                setArticlesByAuthor(articlesByAuthor);
-                setRelatedArticles(relatedArticles);
-                setViewCount(viewCount);
+                setViewCount(newPost.stats?.views || 0);
             } catch (err) {
                 console.error("Error fetching post:", err);
                 setError("Post not found or failed to load");
@@ -154,22 +141,17 @@ export default function BlogPostClient({ initialPostData, slug }) {
         }
 
         try {
-            if (liked) {
-                const result = await unlikePost(post.id);
-                if (result.success) {
-                    setLiked(false);
-                    toast.success("Post unliked");
-                } else {
-                    toast.error(result.message || result.error || "Failed to unlike post");
-                }
+            const res = await fetch(`/api/posts/${post.id}/like`, {
+                method: 'POST',
+                credentials: 'include',
+            });
+            const result = await res.json();
+
+            if (result.success) {
+                setLiked(result.liked !== undefined ? result.liked : !liked);
+                toast.success(result.liked ? "Post liked!" : "Post unliked");
             } else {
-                const result = await likePost(post.id);
-                if (result.success) {
-                    setLiked(true);
-                    toast.success("Post liked!");
-                } else {
-                    toast.error(result.message || result.error || "Failed to like post");
-                }
+                toast.error(result.message || result.error || "Failed to like post");
             }
         } catch (error) {
             toast.error("An error occurred");
@@ -187,9 +169,14 @@ export default function BlogPostClient({ initialPostData, slug }) {
 
         setBookmarkLoading(true);
         try {
-            const result = await toggleBookmark(post.id);
+            const res = await fetch(`/api/posts/${post.id}/bookmark`, {
+                method: 'POST',
+                credentials: 'include',
+            });
+            const result = await res.json();
+
             if (result.success) {
-                setBookmarked(result.bookmarked);
+                setBookmarked(result.bookmarked !== undefined ? result.bookmarked : !bookmarked);
                 toast.success(result.message);
             } else {
                 toast.error(result.message || "Failed to bookmark post");

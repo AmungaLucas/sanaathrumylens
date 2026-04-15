@@ -1,15 +1,12 @@
 "use client";
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { collection, query, where, orderBy, limit, getDocs, startAfter } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
     Calendar, User, Eye, MessageCircle, Heart, ArrowRight,
     Grid, List, Search, Facebook, Share2, Loader, ChevronRight, ChevronLeft
 } from 'lucide-react';
-import { subscribeToNewsletter } from '@/lib/firestore';
 import AdsGoogle from '@/components/AdsGoogle';
 
 // Skeleton Loader Components
@@ -107,7 +104,6 @@ export default function BlogClient({
     const [posts, setPosts] = useState(initialPosts);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
-    const [lastDoc, setLastDoc] = useState(null);
     const [hasMore, setHasMore] = useState(initialHasMore);
     const [currentPage, setCurrentPage] = useState(initialPage);
     const router = useRouter();
@@ -139,10 +135,6 @@ export default function BlogClient({
                 return null;
             }
         }
-        if (dateInput && typeof dateInput === 'object' &&
-            dateInput.seconds !== undefined && dateInput.nanoseconds !== undefined) {
-            return new Date(dateInput.seconds * 1000 + dateInput.nanoseconds / 1000000);
-        }
         return null;
     };
 
@@ -172,51 +164,35 @@ export default function BlogClient({
             setLoadingMore(true);
             console.log(`Loading page ${nextPage}...`);
 
-            let q = query(
-                collection(db, 'posts'),
-                where('status', '==', 'published'),
-                where('isDeleted', '==', false),
-                orderBy('publishedAt', 'desc'),
-                limit(postsPerPage * nextPage) // Load all posts up to the requested page
-            );
+            // Build query params for API
+            const params = new URLSearchParams();
+            params.set('limit', String(postsPerPage * nextPage));
+            params.set('sort', 'publishedAt');
+            params.set('sortDir', 'desc');
+            if (searchQuery) params.set('search', searchQuery);
+            if (selectedCategory) params.set('category', selectedCategory);
 
-            const snapshot = await getDocs(q);
+            const res = await fetch(`/api/posts?${params.toString()}`);
+            const data = await res.json();
 
-            if (snapshot.empty) {
+            if (!data.success) {
+                setError(data.error || 'Failed to load more posts');
+                setLoadingMore(false);
+                return;
+            }
+
+            const allPosts = data.data || [];
+
+            if (allPosts.length === 0) {
                 setHasMore(false);
                 setLoadingMore(false);
                 return;
             }
 
-            // Get all posts up to the requested page
-            const allPosts = snapshot.docs.map(doc => {
-                const data = doc.data();
-                return {
-                    id: doc.id,
-                    ...data,
-                    publishedAt: data.publishedAt?.toDate ? data.publishedAt.toDate() : data.publishedAt,
-                    createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : data.createdAt,
-                    updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : data.updatedAt,
-                };
-            });
-
-            // Apply client-side filters
-            let filteredPosts = allPosts;
-            if (searchQuery) {
-                filteredPosts = filteredPosts.filter(post =>
-                    post.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    post.excerpt?.toLowerCase().includes(searchQuery.toLowerCase())
-                );
-            }
-
-            if (selectedCategory) {
-                filteredPosts = filteredPosts.filter(post => post.category === selectedCategory);
-            }
-
             // Calculate the posts for the specific page we're loading
             const startIndex = postsPerPage * (nextPage - 1);
             const endIndex = postsPerPage * nextPage;
-            const pagePosts = filteredPosts.slice(startIndex, endIndex);
+            const pagePosts = allPosts.slice(startIndex, endIndex);
 
             console.log(`Page ${nextPage}: ${pagePosts.length} posts (${startIndex}-${endIndex})`);
 
@@ -232,18 +208,18 @@ export default function BlogClient({
 
             // Update state
             setCurrentPage(nextPage);
-            setHasMore(nextPage < Math.ceil(filteredPosts.length / postsPerPage));
+            setHasMore(endIndex < (data.pagination?.total || allPosts.length));
 
             // Update URL to reflect the new page
-            const params = new URLSearchParams(searchParams.toString());
+            const urlParams = new URLSearchParams(searchParams.toString());
             if (nextPage > 1) {
-                params.set('page', nextPage.toString());
+                urlParams.set('page', nextPage.toString());
             } else {
-                params.delete('page');
+                urlParams.delete('page');
             }
 
             // Use router.replace instead of pushState for better Next.js integration
-            router.replace(`/blogs?${params.toString()}`, { scroll: false });
+            router.replace(`/blogs?${urlParams.toString()}`, { scroll: false });
 
         } catch (err) {
             console.error('Error fetching more posts:', err);
@@ -251,7 +227,7 @@ export default function BlogClient({
         } finally {
             setLoadingMore(false);
         }
-    }, [lastDoc, hasMore, loadingMore, searchQuery, selectedCategory, postsPerPage, searchParams, currentPage, loadedPages, router]);
+    }, [hasMore, loadingMore, searchQuery, selectedCategory, postsPerPage, searchParams, currentPage, loadedPages, router]);
 
     // Handle search and category changes
     useEffect(() => {
@@ -260,7 +236,6 @@ export default function BlogClient({
                 setIsFiltering(true);
                 setCurrentPage(1);
                 setHasMore(true);
-                setLastDoc(null);
                 setPosts([]);
                 setLoadedPages(new Set([1])); // Reset loaded pages
 
@@ -296,7 +271,12 @@ export default function BlogClient({
 
         try {
             setNewsletterLoading(true);
-            const result = await subscribeToNewsletter(email);
+            const res = await fetch('/api/subscribers', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email }),
+            });
+            const result = await res.json();
             setNewsletterMessage(result.message);
             if (result.success) {
                 setEmail('');

@@ -1,8 +1,7 @@
-// src/app/dashboard/bookmarks/page.js
+// src/app/(website)/bookmarks/page.js
 "use client";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { fetchUserBookmarks } from "@/lib/firestore";
 import Link from "next/link";
 import Image from "next/image";
 import { Bookmark, Calendar, Clock, Eye } from "lucide-react";
@@ -22,8 +21,13 @@ export default function BookmarksPage() {
 
         try {
             setLoading(true);
-            const data = await fetchUserBookmarks();
-            setBookmarks(data);
+            const res = await fetch('/api/bookmarks', { credentials: 'include' });
+            const result = await res.json();
+            if (result.success) {
+                setBookmarks(result.data || []);
+            } else {
+                toast.error(result.error || 'Failed to load bookmarks');
+            }
         } catch (error) {
             console.error("Error fetching bookmarks:", error);
             toast.error("Failed to load bookmarks");

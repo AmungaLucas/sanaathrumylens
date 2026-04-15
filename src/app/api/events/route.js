@@ -1,0 +1,50 @@
+// src/app/api/events/route.js
+// GET: List upcoming events
+import { query, initDatabase } from '@/lib/db';
+import { formatEvent, successResponse, errorResponse } from '@/lib/apiHelper';
+
+let dbReady = false;
+async function ensureDb() {
+  if (!dbReady) {
+    await initDatabase();
+    dbReady = true;
+  }
+}
+
+export async function GET(request) {
+  try {
+    await ensureDb();
+
+    const { searchParams } = new URL(request.url);
+    const limit = searchParams.get('limit') || '';
+    const status = searchParams.get('status') || 'published';
+
+    let sql = `
+      SELECT *
+      FROM events
+      WHERE status = ? AND is_deleted = 0
+    `;
+    const values = [status];
+
+    // Only show events with start_date in the future by default
+    const upcomingOnly = searchParams.get('upcoming') !== 'false';
+    if (upcomingOnly) {
+      sql += ' AND start_date >= CURRENT_TIMESTAMP';
+    }
+
+    sql += ' ORDER BY start_date ASC';
+
+    if (limit) {
+      sql += ' LIMIT ?';
+      values.push(parseInt(limit, 10));
+    }
+
+    const rows = await query(sql, values);
+    const events = Array.isArray(rows) ? rows.map(formatEvent) : [];
+
+    return successResponse({ events });
+  } catch (err) {
+    console.error('Error fetching events:', err);
+    return errorResponse('Failed to fetch events', 500);
+  }
+}

@@ -1,11 +1,9 @@
-// src/app/blogs/popular/page.js
+// src/app/(website)/blogs/popular/page.js
 "use client";
 import { useState, useEffect } from 'react';
-import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Calendar, User, Eye, MessageCircle, Heart, ArrowRight, Flame } from 'lucide-react';
+import { Eye, ArrowRight, Flame, Heart } from 'lucide-react';
 
 export default function PopularArticlesPage() {
     const [popularPosts, setPopularPosts] = useState([]);
@@ -21,51 +19,17 @@ export default function PopularArticlesPage() {
         try {
             setLoading(true);
 
-            // Fetch most viewed articles
-            const mostViewedQuery = query(
-                collection(db, 'posts'),
-                where('status', '==', 'published'),
-                where('isDeleted', '==', false),
-                orderBy('stats.views', 'desc'),
-                limit(10)
-            );
+            const res = await fetch('/api/posts?limit=20&sort=stats_views&sortDir=desc');
+            const data = await res.json();
 
-            // Fetch most liked articles
-            const mostLikedQuery = query(
-                collection(db, 'posts'),
-                where('status', '==', 'published'),
-                where('isDeleted', '==', false),
-                orderBy('stats.likes', 'desc'),
-                limit(10)
-            );
+            if (!data.success) {
+                throw new Error(data.error || 'Failed to load popular articles');
+            }
 
-            const [mostViewedSnapshot, mostLikedSnapshot] = await Promise.all([
-                getDocs(mostViewedQuery),
-                getDocs(mostLikedQuery)
-            ]);
+            const posts = data.data || [];
 
-            const mostViewed = mostViewedSnapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data(),
-                publishedAt: doc.data().publishedAt?.toDate(),
-                type: 'viewed'
-            }));
-
-            const mostLiked = mostLikedSnapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data(),
-                publishedAt: doc.data().publishedAt?.toDate(),
-                type: 'liked'
-            }));
-
-            // Merge and deduplicate
-            const allPosts = [...mostViewed, ...mostLiked];
-            const uniquePosts = allPosts.filter((post, index, self) =>
-                index === self.findIndex(p => p.id === post.id)
-            );
-
-            // Sort by popularity score (views + likes)
-            const sortedPosts = uniquePosts.sort((a, b) => {
+            // Sort by combined popularity score (views + likes)
+            const sortedPosts = [...posts].sort((a, b) => {
                 const scoreA = (a.stats?.views || 0) + (a.stats?.likes || 0);
                 const scoreB = (b.stats?.views || 0) + (b.stats?.likes || 0);
                 return scoreB - scoreA;

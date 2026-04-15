@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { fetchPublishedPosts, fetchPublishedEvents } from '@/lib/serverFirestore';
+import { query, initDatabase } from '@/lib/db';
 import { SITE_URL } from '../seo/constants';
 
 const MAX_URLS_PER_SITEMAP = 50000;
@@ -10,6 +10,14 @@ let sitemapCache = {
     timestamp: 0,
     ttl: 1000 * 60 * 10, // 10 minutes
 };
+
+let dbReady = false;
+async function ensureDb() {
+    if (!dbReady) {
+        await initDatabase();
+        dbReady = true;
+    }
+}
 
 // Escape XML special characters
 const escapeXml = (unsafe) => {
@@ -59,40 +67,32 @@ const buildSitemapXml = (urlEntries) => {
     )}\n</urlset>`;
 };
 
-export async function GET() {
-    // Comment out or remove this debug line to allow Firebase execution
-    // return new NextResponse('Sitemap Route reached!', { status: 200 });
+function toISO(date) {
+    if (!date) return null;
+    const d = new Date(date);
+    return isNaN(d.getTime()) ? null : d.toISOString();
+}
 
+export async function GET() {
     try {
         // Return cached sitemap if valid
         if (sitemapCache.xml && Date.now() - sitemapCache.timestamp < sitemapCache.ttl) {
             return new NextResponse(sitemapCache.xml, { headers: { 'Content-Type': 'application/xml' } });
         }
 
-        // Add a fallback in case Firebase fails
-        let posts = [];
-        let events = [];
+        await ensureDb();
 
-        try {
-            // Fetch published posts from Firestore
-            posts = await fetchPublishedPosts(MAX_URLS_PER_SITEMAP);
-            if (!Array.isArray(posts)) posts = [];
+        // Fetch published posts from DB
+        const postRows = await query(
+            "SELECT slug, cover_image, featured_image, published_at, updated_at FROM posts WHERE status = 'published' AND is_deleted = 0 ORDER BY published_at DESC LIMIT 50000"
+        );
+        const posts = Array.isArray(postRows) ? postRows : [];
 
-            // Fetch published events from Firestore
-            events = await fetchPublishedEvents(MAX_URLS_PER_SITEMAP);
-            if (!Array.isArray(events)) events = [];
-        } catch (firebaseError) {
-            console.error('Firebase fetch error, using empty arrays:', firebaseError.message);
-            // Continue with empty arrays if Firebase fails
-            posts = [];
-            events = [];
-        }
-
-        // Sort posts newest first
-        posts.sort((a, b) => new Date(b.updatedAt || b.publishedAt) - new Date(a.updatedAt || a.publishedAt));
-
-        // Sort events by start date (upcoming first)
-        events.sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
+        // Fetch published events from DB
+        const eventRows = await query(
+            "SELECT slug, cover_image, featured_image, start_date, updated_at FROM events WHERE status = 'published' AND is_deleted = 0 ORDER BY start_date ASC LIMIT 50000"
+        );
+        const events = Array.isArray(eventRows) ? eventRows : [];
 
         // Dynamic URLs for posts
         const dynamicUrls = posts
@@ -102,15 +102,15 @@ export async function GET() {
                 const loc = sanitizeUrl(`${SITE_URL}/blogs/${post.slug}`);
                 if (!loc) return null;
 
-                const lastmodDate = new Date(post.updatedAt || post.publishedAt || Date.now());
-                const lastmod = isNaN(lastmodDate.getTime()) ? new Date().toISOString() : lastmodDate.toISOString();
+                const lastmodISO = toISO(post.updated_at || post.published_at);
+                const lastmod = lastmodISO || new Date().toISOString();
 
-                const { changefreq, priority } = heuristicsForDate(lastmod);
+                const { changefreq, priority } = heuristicsForDate(lastmodISO);
 
                 // Support optional images
                 const images = [
-                    post.coverImage?.url || post.coverImage,
-                    post.featuredImage?.url || post.featuredImage
+                    post.cover_image,
+                    post.featured_image
                 ].filter(img => typeof img === 'string');
 
                 return generateUrlEntry(loc, lastmod, changefreq, priority, images);
@@ -120,20 +120,20 @@ export async function GET() {
         // Dynamic URLs for events
         const eventUrls = events
             .map((event) => {
-                if (!event.slug && !event.id) return null;
+                if (!event.slug) return null;
 
-                const loc = sanitizeUrl(`${SITE_URL}/events/${event.slug || event.id}`);
+                const loc = sanitizeUrl(`${SITE_URL}/events/${event.slug}`);
                 if (!loc) return null;
 
-                const lastmodDate = event.updatedAt ? new Date(event.updatedAt) : (event.startDate ? new Date(event.startDate) : new Date());
-                const lastmod = isNaN(lastmodDate.getTime()) ? new Date().toISOString() : lastmodDate.toISOString();
+                const lastmodISO = toISO(event.updated_at || event.start_date);
+                const lastmod = lastmodISO || new Date().toISOString();
 
-                const { changefreq, priority } = heuristicsForDate(lastmod);
+                const { changefreq, priority } = heuristicsForDate(lastmodISO);
 
                 // Support optional images for events
                 const images = [
-                    event.coverImage?.url || event.coverImage,
-                    event.featuredImage?.url || event.featuredImage
+                    event.cover_image,
+                    event.featured_image
                 ].filter(img => typeof img === 'string');
 
                 return generateUrlEntry(loc, lastmod, changefreq, 0.8, images);
@@ -144,7 +144,7 @@ export async function GET() {
         const staticPages = [
             '/',
             '/blogs',
-            '/events',  // Added events page
+            '/events',
             '/about',
             '/author',
             '/categories',

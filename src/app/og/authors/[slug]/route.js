@@ -1,14 +1,26 @@
-// src/app/og/events/[slug]/route.js
+// src/app/og/authors/[slug]/route.js
 
 import { ImageResponse } from '@vercel/og';
-import { fetchAuthorBySlug } from '@/lib/serverFirestore';
+import { query, initDatabase } from '@/lib/db';
 
 export const runtime = 'nodejs';
+
+let dbReady = false;
+async function ensureDb() {
+    if (!dbReady) {
+        await initDatabase();
+        dbReady = true;
+    }
+}
 
 export default async function handler(req, { params }) {
     try {
         const { slug } = params;
-        const author = await fetchAuthorBySlug(slug);
+
+        await ensureDb();
+        const rows = await query('SELECT * FROM authors WHERE slug = ? LIMIT 1', [slug]);
+
+        const author = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
 
         const name = author?.name || 'Author';
         const avatar = author?.avatar || null;

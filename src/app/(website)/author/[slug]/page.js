@@ -1,30 +1,33 @@
-import { collection, query, where, getDocs, limit } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { query, initDatabase } from '@/lib/db';
 import { SITE_NAME, SITE_URL, DEFAULT_OG_IMAGE } from '@/app/seo/constants';
 import { generateCanonicalUrl } from '@/app/seo/meta';
 import AuthorProfileClient from './AuthorProfileClient';
+
+let dbReady = false;
+async function ensureDb() {
+    if (!dbReady) {
+        await initDatabase();
+        dbReady = true;
+    }
+}
 
 // SEO: generateMetadata for author profile (Server Component)
 export async function generateMetadata({ params }) {
     const { slug } = await params;
 
-    // Fetch author data (minimal, for SEO)
     let authorName = slug;
     let authorBio = '';
     let authorImage = DEFAULT_OG_IMAGE;
 
     try {
-        // Try to fetch author from Firestore
-        const authorsRef = collection(db, 'authors');
-        const authorQuery = query(authorsRef, where('slug', '==', slug), where('isActive', '==', true), limit(1));
-        const authorSnapshot = await getDocs(authorQuery);
+        await ensureDb();
+        const rows = await query('SELECT * FROM authors WHERE slug = ? LIMIT 1', [slug]);
 
-        if (!authorSnapshot.empty) {
-            const authorDoc = authorSnapshot.docs[0];
-            const data = authorDoc.data();
+        if (Array.isArray(rows) && rows.length > 0) {
+            const data = rows[0];
             authorName = data.name || slug;
             authorBio = data.bio || '';
-            authorImage = data.photoURL || DEFAULT_OG_IMAGE;
+            authorImage = data.avatar || DEFAULT_OG_IMAGE;
         }
     } catch (e) {
         console.error('Error fetching author for SEO:', e);

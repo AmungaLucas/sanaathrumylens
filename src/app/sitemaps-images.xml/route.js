@@ -1,8 +1,16 @@
 // src/app/sitemaps-images.xml/route.js
 import { NextResponse } from 'next/server';
-import { fetchPublishedPosts, fetchPublishedEvents } from '@/lib/serverFirestore';
+import { query, initDatabase } from '@/lib/db';
 
 import { SITE_URL } from '../seo/constants';
+
+let dbReady = false;
+async function ensureDb() {
+    if (!dbReady) {
+        await initDatabase();
+        dbReady = true;
+    }
+}
 
 // Escape XML special characters
 const escapeXml = (unsafe) => {
@@ -17,23 +25,27 @@ const escapeXml = (unsafe) => {
 
 export async function GET() {
     try {
-        const [posts, events] = await Promise.all([
-            fetchPublishedPosts(500),
-            fetchPublishedEvents(500)
+        await ensureDb();
+
+        const [postRows, eventRows] = await Promise.all([
+            query("SELECT slug, title, cover_image, featured_image FROM posts WHERE status = 'published' AND is_deleted = 0 ORDER BY published_at DESC LIMIT 500"),
+            query("SELECT slug, title, cover_image, featured_image FROM events WHERE status = 'published' AND is_deleted = 0 ORDER BY start_date DESC LIMIT 500")
         ]);
+
+        const posts = Array.isArray(postRows) ? postRows : [];
+        const events = Array.isArray(eventRows) ? eventRows : [];
 
         // Process posts
         const postItems = posts
-            .filter((post) => post.coverImage || post.featuredImage || (post.images && post.images.length > 0))
+            .filter((post) => post.cover_image || post.featured_image)
             .map((post) => {
                 const loc = `${SITE_URL}/blogs/${post.slug}`;
                 const title = escapeXml(post.title || '');
 
                 // Collect all images
                 const images = [
-                    post.coverImage?.url || post.coverImage,
-                    post.featuredImage?.url || post.featuredImage,
-                    ...(Array.isArray(post.images) ? post.images.map(img => img.url || img) : []),
+                    post.cover_image,
+                    post.featured_image,
                 ].filter(img => typeof img === 'string');
 
                 const imageBlocks = images
@@ -52,15 +64,15 @@ ${imageBlocks}
 
         // Process events
         const eventItems = events
-            .filter((event) => event.coverImage || event.featuredImage)
+            .filter((event) => event.cover_image || event.featured_image)
             .map((event) => {
                 const loc = `${SITE_URL}/events/${event.slug || event.id}`;
                 const title = escapeXml(event.title || '');
 
                 // Collect all images
                 const images = [
-                    event.coverImage?.url || event.coverImage,
-                    event.featuredImage?.url || event.featuredImage,
+                    event.cover_image,
+                    event.featured_image,
                 ].filter(img => typeof img === 'string');
 
                 const imageBlocks = images

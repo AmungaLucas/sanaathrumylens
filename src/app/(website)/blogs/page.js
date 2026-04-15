@@ -1,10 +1,16 @@
 import { generateBlogListingMetadata } from '@/app/seo/meta';
-import {
-    fetchBlogPosts, fetchFeaturedArticle, fetchRecentStories,
-    fetchPopularArticles, fetchCategories
-} from '@/lib/firestore';
+import { query, initDatabase } from '@/lib/db';
+import { formatPost } from '@/lib/apiHelper';
 import BlogClient from './BlogClient';
 import Link from 'next/link';
+
+let dbReady = false;
+async function ensureDb() {
+    if (!dbReady) {
+        await initDatabase();
+        dbReady = true;
+    }
+}
 
 export async function generateMetadata({ searchParams }) {
     const params = await searchParams;
@@ -19,36 +25,12 @@ export async function generateMetadata({ searchParams }) {
     });
 }
 
-// Helper function to serialize Firestore data for client components
-function serializeForClient(data) {
-    if (Array.isArray(data)) {
-        return data.map(item => serializeForClient(item));
-    }
-
-    if (data && typeof data === 'object' && !(data instanceof Date)) {
-        if (data.seconds !== undefined && data.nanoseconds !== undefined) {
-            return new Date(data.seconds * 1000 + data.nanoseconds / 1000000).toISOString();
-        }
-
-        const result = {};
-        for (const key in data) {
-            if (data.hasOwnProperty(key)) {
-                result[key] = serializeForClient(data[key]);
-            }
-        }
-        return result;
-    }
-
-    return data;
-}
-
 // Helper function to remove duplicates by ID
 function removeDuplicatesById(array) {
     const seen = new Set();
     return array.filter(item => {
         if (!item.id) return true;
         if (seen.has(item.id)) {
-            console.warn(`Duplicate ID found: ${item.id}`);
             return false;
         }
         seen.add(item.id);
@@ -59,43 +41,44 @@ function removeDuplicatesById(array) {
 // Helper to fetch posts with filters
 async function fetchPostsWithFilters(search = '', category = '', page = 1, limit = 12) {
     try {
-        let posts = await fetchBlogPosts(100); // Fetch enough for filtering
+        await ensureDb();
+
+        const conditions = ["p.status = 'published'", 'p.is_deleted = 0'];
+        const values = [];
 
         if (search) {
-            posts = posts.filter(post =>
-                post.title?.toLowerCase().includes(search.toLowerCase()) ||
-                post.excerpt?.toLowerCase().includes(search.toLowerCase())
-            );
+            conditions.push('(p.title LIKE ? OR p.excerpt LIKE ?)');
+            const term = `%${search}%`;
+            values.push(term, term);
         }
 
         if (category) {
-            posts = posts.filter(post =>
-                post.category === category ||
-                post.categoryIds?.includes(category)
-            );
+            conditions.push('p.category_ids LIKE ?');
+            values.push(`%"${category}"%`);
         }
 
-        // Remove duplicates
-        posts = removeDuplicatesById(posts);
+        const where = conditions.join(' AND ');
 
-        // Sort by published date (newest first)
-        posts.sort((a, b) => {
-            const dateA = a.publishedAt?.seconds ? a.publishedAt.seconds * 1000 : new Date(a.publishedAt).getTime();
-            const dateB = b.publishedAt?.seconds ? b.publishedAt.seconds * 1000 : new Date(b.publishedAt).getTime();
-            return dateB - dateA;
-        });
+        // Count total
+        const countRows = await query(`SELECT COUNT(*) as total FROM posts p WHERE ${where}`, values);
+        const totalPosts = Array.isArray(countRows) && countRows[0] ? countRows[0].total : 0;
 
-        // Paginate
+        // Fetch paginated posts
         const offset = (page - 1) * limit;
-        const paginatedPosts = posts.slice(offset, offset + limit);
-        const hasMore = posts.length > offset + limit;
-        const totalPosts = posts.length;
+        const postRows = await query(
+            `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar, a.bio as author_bio
+             FROM posts p LEFT JOIN authors a ON p.author_id = a.id
+             WHERE ${where}
+             ORDER BY p.published_at DESC
+             LIMIT ? OFFSET ?`,
+            [...values, limit, offset]
+        );
 
-        console.log(`Server: Page ${page}, Total: ${totalPosts}, Showing: ${paginatedPosts.length}, HasMore: ${hasMore}`);
+        const posts = Array.isArray(postRows) ? postRows.map(formatPost) : [];
 
         return {
-            posts: paginatedPosts,
-            hasMore,
+            posts,
+            hasMore: totalPosts > offset + limit,
             totalPosts,
             currentPage: page,
             totalPages: Math.ceil(totalPosts / limit)
@@ -104,6 +87,78 @@ async function fetchPostsWithFilters(search = '', category = '', page = 1, limit
         console.error('Error fetching posts with filters:', error);
         throw error;
     }
+}
+
+// Fetch a featured article
+async function fetchFeaturedArticle() {
+    try {
+        await ensureDb();
+        const rows = await query(
+            `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar, a.bio as author_bio
+             FROM posts p LEFT JOIN authors a ON p.author_id = a.id
+             WHERE p.status = 'published' AND p.is_deleted = 0 AND p.is_featured = 1
+             ORDER BY p.published_at DESC LIMIT 1`
+        );
+        if (Array.isArray(rows) && rows.length > 0) return formatPost(rows[0]);
+
+        // Fallback: latest post
+        const fallback = await query(
+            `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar, a.bio as author_bio
+             FROM posts p LEFT JOIN authors a ON p.author_id = a.id
+             WHERE p.status = 'published' AND p.is_deleted = 0
+             ORDER BY p.published_at DESC LIMIT 1`
+        );
+        return Array.isArray(fallback) && fallback.length > 0 ? formatPost(fallback[0]) : null;
+    } catch { return null; }
+}
+
+// Fetch recent stories
+async function fetchRecentStories(count = 4) {
+    try {
+        await ensureDb();
+        const rows = await query(
+            `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar, a.bio as author_bio
+             FROM posts p LEFT JOIN authors a ON p.author_id = a.id
+             WHERE p.status = 'published' AND p.is_deleted = 0
+             ORDER BY p.published_at DESC LIMIT ?`,
+            [count]
+        );
+        return Array.isArray(rows) ? rows.map(formatPost) : [];
+    } catch { return []; }
+}
+
+// Fetch popular articles
+async function fetchPopularArticles(count = 4) {
+    try {
+        await ensureDb();
+        const rows = await query(
+            `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar, a.bio as author_bio
+             FROM posts p LEFT JOIN authors a ON p.author_id = a.id
+             WHERE p.status = 'published' AND p.is_deleted = 0
+             ORDER BY p.stats_views DESC LIMIT ?`,
+            [count]
+        );
+        return Array.isArray(rows) ? rows.map(formatPost) : [];
+    } catch { return []; }
+}
+
+// Fetch categories
+async function fetchCategories() {
+    try {
+        await ensureDb();
+        const rows = await query(
+            `SELECT c.*, (SELECT COUNT(*) FROM posts p WHERE p.category_ids LIKE CONCAT('%"', c.slug, '"%') AND p.status = 'published' AND p.is_deleted = 0) as post_count
+             FROM categories c WHERE c.is_active = 1
+             ORDER BY c.name ASC`
+        );
+        return Array.isArray(rows) ? rows.map((r) => ({
+            id: r.id,
+            name: r.name,
+            slug: r.slug,
+            description: r.description,
+            postCount: r.post_count || 0,
+        })) : [];
+    } catch { return []; }
 }
 
 // This function runs on the server
@@ -139,13 +194,12 @@ async function getServerSideData(searchParams) {
             !recentStoryIds.has(article.id)
         );
 
-        // Serialize ALL data before passing to client
         return {
-            posts: serializeForClient(postsData.posts),
-            featuredStory: serializeForClient(featuredStory),
-            recentStories: serializeForClient(uniqueRecentStories),
-            popularArticles: serializeForClient(filteredPopularArticles),
-            categories: serializeForClient(categories),
+            posts: postsData.posts,
+            featuredStory,
+            recentStories: uniqueRecentStories,
+            popularArticles: filteredPopularArticles,
+            categories,
             hasMore: postsData.hasMore,
             totalPosts: postsData.totalPosts,
             currentPage: page,

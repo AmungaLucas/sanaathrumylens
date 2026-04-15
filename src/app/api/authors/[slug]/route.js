@@ -1,47 +1,81 @@
-import { db } from '@/lib/firebaseAdmin';
-import { NextResponse } from 'next/server';
+// src/app/api/authors/[slug]/route.js
+// GET: Fetch a single author with their posts
+import { query, initDatabase } from '@/lib/db';
+import { formatPost, successResponse, errorResponse } from '@/lib/apiHelper';
 
-export async function GET(req, { params }) {
-    try {
-        const { slug } = params;
+let dbReady = false;
+async function ensureDb() {
+  if (!dbReady) {
+    await initDatabase();
+    dbReady = true;
+  }
+}
 
-        // Try authors collection first
-        let snapshot = await db.collection('authors').where('slug', '==', slug).limit(1).get();
+export async function GET(request, { params }) {
+  try {
+    await ensureDb();
+    const { slug } = await params;
 
-        if (!snapshot.empty) {
-            const doc = snapshot.docs[0];
-            const data = doc.data();
-            return NextResponse.json({
-                id: doc.id,
-                slug: data.slug || doc.id,
-                name: data.name || data.displayName || slug,
-                bio: data.bio || data.description || null,
-                avatar: data.avatar || data.photoURL || data.profileImage || null,
-            });
-        }
-
-        // Try users collection as fallback
-        snapshot = await db.collection('users').where('slug', '==', slug).limit(1).get();
-
-        if (!snapshot.empty) {
-            const doc = snapshot.docs[0];
-            const data = doc.data();
-            return NextResponse.json({
-                id: doc.id,
-                slug: data.slug || doc.id,
-                name: data.name || data.displayName || slug,
-                bio: data.bio || null,
-                avatar: data.avatar || data.photoURL || null,
-            });
-        }
-
-        // Not found
-        return NextResponse.json(
-            { error: 'Author not found' },
-            { status: 404 }
-        );
-    } catch (err) {
-        console.error('Error fetching author:', err);
-        return NextResponse.json({ error: err.message }, { status: 500 });
+    if (!slug) {
+      return errorResponse('Author slug is required', 400);
     }
+
+    // Fetch author by slug
+    const authorRows = await query(
+      'SELECT * FROM authors WHERE slug = ? LIMIT 1',
+      [slug]
+    );
+
+    if (!Array.isArray(authorRows) || authorRows.length === 0) {
+      // Try looking up in users table as fallback
+      const userRows = await query(
+        'SELECT * FROM users WHERE slug = ? AND is_public = 1 LIMIT 1',
+        [slug]
+      );
+      if (!Array.isArray(userRows) || userRows.length === 0) {
+        return errorResponse('Author not found', 404);
+      }
+    }
+
+    const author = authorRows?.[0] || null;
+    const userAuthor = (!author) ? (await query(
+      'SELECT * FROM users WHERE slug = ? AND is_public = 1 LIMIT 1',
+      [slug]
+    ))?.[0] : null;
+
+    const authorData = author || userAuthor;
+    if (!authorData) {
+      return errorResponse('Author not found', 404);
+    }
+
+    const authorId = author ? author.id : null;
+
+    // Fetch author's published posts
+    let posts = [];
+    if (authorId) {
+      const postRows = await query(
+        `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar, a.bio as author_bio
+         FROM posts p
+         LEFT JOIN authors a ON p.author_id = a.id
+         WHERE p.author_id = ? AND p.status = 'published' AND p.is_deleted = 0
+         ORDER BY p.published_at DESC`,
+        [authorId]
+      );
+      posts = Array.isArray(postRows) ? postRows.map(formatPost) : [];
+    }
+
+    return successResponse({
+      author: {
+        id: authorData.id,
+        slug: authorData.slug,
+        name: authorData.name || authorData.display_name || slug,
+        bio: authorData.bio || null,
+        avatar: authorData.avatar || null,
+      },
+      posts,
+    });
+  } catch (err) {
+    console.error('Error fetching author:', err);
+    return errorResponse('Failed to fetch author', 500);
+  }
 }

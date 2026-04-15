@@ -1,11 +1,19 @@
 import { NextResponse } from 'next/server';
-import { fetchPublishedPosts, fetchPublishedEvents } from '@/lib/serverFirestore';
+import { query, initDatabase } from '@/lib/db';
 import { SITE_NAME, SITE_URL } from '../seo/constants';
 
 // In-memory cache
 let cachedRSS = null;
 let lastGenerated = 0;
 const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes in milliseconds
+
+let dbReady = false;
+async function ensureDb() {
+    if (!dbReady) {
+        await initDatabase();
+        dbReady = true;
+    }
+}
 
 // Escape XML special characters
 const escapeXml = (unsafe) => {
@@ -18,10 +26,19 @@ const escapeXml = (unsafe) => {
     .replace(/'/g, '&apos;');
 };
 
-export async function GET() {
-  // DEBUG - Comment this out to allow Firebase execution
-  // return new NextResponse('Feed Route reached!', { status: 200 });
+function safeJsonParse(str) {
+  if (!str) return null;
+  if (typeof str === 'object') return str;
+  try { return JSON.parse(str); } catch { return null; }
+}
 
+function toISO(date) {
+  if (!date) return null;
+  const d = new Date(date);
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+export async function GET() {
   const now = Date.now();
 
   // Return cached feed if it's still valid
@@ -30,83 +47,97 @@ export async function GET() {
   }
 
   try {
-    // Add fallback for Firebase errors
-    let posts = [];
-    let events = [];
+    await ensureDb();
 
-    try {
-      // Fetch latest published content
-      posts = await fetchPublishedPosts(30);
-      events = await fetchPublishedEvents(20);
-    } catch (firebaseError) {
-      console.error('Firebase fetch error in feed:', firebaseError.message);
-      // Continue with empty arrays if Firebase fails
-      posts = [];
-      events = [];
-    }
+    // Fetch latest published posts
+    const postRows = await query(
+      "SELECT slug, title, excerpt, cover_image, featured_image, published_at, updated_at, tags, category_ids FROM posts WHERE status = 'published' AND is_deleted = 0 ORDER BY published_at DESC LIMIT 1000"
+    );
+
+    // Fetch latest published events
+    const eventRows = await query(
+      "SELECT slug, title, description, excerpt, cover_image, featured_image, start_date, end_date, created_at, location, is_online FROM events WHERE status = 'published' AND is_deleted = 0 ORDER BY start_date DESC LIMIT 100"
+    );
+
+    const posts = Array.isArray(postRows) ? postRows : [];
+    const events = Array.isArray(eventRows) ? eventRows : [];
 
     // Combine and sort all content by date
     const allContent = [
-      ...posts.map(post => ({
-        type: 'post',
-        ...post,
-        pubDate: post.publishedAt || post.createdAt,
-        link: `${SITE_URL}/blogs/${post.slug}`,
-        description: post.excerpt || post.description || ''
-      })),
+      ...posts.map(post => {
+        const categoryIds = safeJsonParse(post.category_ids);
+        return {
+          type: 'post',
+          slug: post.slug,
+          title: post.title,
+          excerpt: post.excerpt,
+          coverImage: post.cover_image,
+          featuredImage: post.featured_image,
+          publishedAt: toISO(post.published_at),
+          category: Array.isArray(categoryIds) && categoryIds.length > 0 ? categoryIds[0] : null,
+        };
+      }),
       ...events.map(event => ({
         type: 'event',
-        ...event,
-        pubDate: event.startDate || event.createdAt,
-        link: `${SITE_URL}/events/${event.slug || event.id}`,
-        description: event.description || event.excerpt || `Event happening on ${new Date(event.startDate).toLocaleDateString()}`
+        slug: event.slug,
+        title: event.title,
+        description: event.description || event.excerpt,
+        coverImage: event.cover_image,
+        featuredImage: event.featured_image,
+        startDate: toISO(event.start_date),
+        endDate: toISO(event.end_date),
+        createdAt: toISO(event.created_at),
+        isOnline: Boolean(event.is_online),
+        location: event.location,
       }))
     ].filter(item => {
       if (item.type === 'event' && !item.startDate) return false;
-      const date = new Date(item.pubDate);
-      return !isNaN(date.getTime());
-    }).sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))
-      .slice(0, 50); // Limit to 50 items
+      const date = item.type === 'post' ? item.publishedAt : item.startDate;
+      if (!date) return false;
+      return !isNaN(new Date(date).getTime());
+    }).sort((a, b) => {
+      const dateA = a.type === 'post' ? new Date(a.publishedAt) : new Date(a.startDate);
+      const dateB = b.type === 'post' ? new Date(b.publishedAt) : new Date(b.startDate);
+      return dateB - dateA;
+    }).slice(0, 50);
 
     // Map content to RSS <item> format
     const items = allContent.map((item) => {
-      const pubDate = item.pubDate
-        ? new Date(item.pubDate).toUTCString()
-        : new Date().toUTCString();
+      const pubDate = item.type === 'post'
+        ? (item.publishedAt ? new Date(item.publishedAt).toUTCString() : new Date().toUTCString())
+        : (item.startDate ? new Date(item.startDate).toUTCString() : new Date().toUTCString());
+
+      const link = item.type === 'post'
+        ? `${SITE_URL}/blogs/${item.slug}`
+        : `${SITE_URL}/events/${item.slug || item.id}`;
+
+      const description = item.type === 'post'
+        ? (item.excerpt || '')
+        : (item.description || item.excerpt || `Event happening on ${item.startDate ? new Date(item.startDate).toLocaleDateString() : 'TBD'}`);
 
       let categoryTag = '';
       if (item.type === 'post' && item.category) {
-        categoryTag = `<category>${item.category}</category>`;
+        categoryTag = `<category>${escapeXml(item.category)}</category>`;
       } else if (item.type === 'event') {
         categoryTag = `<category>Event</category>`;
-        if (item.category) {
-          categoryTag += `<category>${item.category}</category>`;
-        }
       }
 
       // Add image if available
       let imageTag = '';
-      if (item.coverImage || item.featuredImage) {
-        let imageUrl = '';
-        if (typeof item.coverImage === 'string') imageUrl = item.coverImage;
-        else if (item.coverImage?.url) imageUrl = item.coverImage.url;
-        else if (typeof item.featuredImage === 'string') imageUrl = item.featuredImage;
-        else if (item.featuredImage?.url) imageUrl = item.featuredImage.url;
-
-        if (imageUrl) {
-          imageTag = `<enclosure url="${escapeXml(imageUrl)}" type="image/jpeg" />`;
-        }
+      const imageUrl = item.coverImage || item.featuredImage;
+      if (imageUrl && typeof imageUrl === 'string') {
+        imageTag = `<enclosure url="${escapeXml(imageUrl)}" type="image/jpeg" />`;
       }
 
       return `
     <item>
       <title><![CDATA[${item.type === 'event' ? '🎟️ ' : ''}${item.title}]]></title>
-      <link>${escapeXml(item.link)}</link>
-      <guid isPermaLink="true">${escapeXml(item.link)}</guid>
+      <link>${escapeXml(link)}</link>
+      <guid isPermaLink="true">${escapeXml(link)}</guid>
       <pubDate>${pubDate}</pubDate>
       ${categoryTag}
       ${imageTag}
-      <description><![CDATA[${item.description || ''}]]></description>
+      <description><![CDATA[${description || ''}]]></description>
     </item>`;
     });
 

@@ -1,19 +1,44 @@
 // src/app/og/[slug]/route.js
 import { ImageResponse } from '@vercel/og';
-import { fetchPostBySlug } from '@/lib/serverFirestore';
+import { query, initDatabase } from '@/lib/db';
 
 export const runtime = 'nodejs';
+
+let dbReady = false;
+async function ensureDb() {
+    if (!dbReady) {
+        await initDatabase();
+        dbReady = true;
+    }
+}
+
+function safeJsonParse(str) {
+    if (!str) return null;
+    if (typeof str === 'object') return str;
+    try { return JSON.parse(str); } catch { return null; }
+}
 
 const FONT_SIZE = 56;
 
 export default async function handler(req, { params }) {
     try {
         const { slug } = params;
-        const post = await fetchPostBySlug(slug);
+
+        await ensureDb();
+        const rows = await query(
+            `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar
+             FROM posts p LEFT JOIN authors a ON p.author_id = a.id
+             WHERE p.slug = ? AND p.status = 'published' AND p.is_deleted = 0
+             LIMIT 1`,
+            [slug]
+        );
+
+        const post = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
 
         const title = post?.title || 'Sanaathrumylens';
-        const author = post?.author?.name || post?.author || process.env.SITE_NAME || 'Sanaathrumylens';
-        const bg = post?.coverImage || post?.featuredImage || null;
+        const authorSnapshot = safeJsonParse(post?.author_snapshot);
+        const author = post?.author_name || authorSnapshot?.name || process.env.SITE_NAME || 'Sanaathrumylens';
+        const bg = post?.cover_image || post?.featured_image || null;
 
         return new ImageResponse(
             (

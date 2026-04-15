@@ -2,7 +2,7 @@
 
 "use client";
 import { useState } from "react";
-import { subscribeToNewsletter as subscribeNewsletter } from "@/lib/firestore";
+// Newsletter subscription via API
 import { SectionTitle } from "./SectionTitle";
 
 export default function SubscriptionForm() {
@@ -22,7 +22,12 @@ export default function SubscriptionForm() {
 
         setLoading(true);
         try {
-            const result = await subscribeNewsletter(email);
+            const res = await fetch('/api/subscribers', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email }),
+            });
+            const result = await res.json();
             setSubscriptionStatus(result);
             if (result.success) {
                 setEmail("");

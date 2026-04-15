@@ -1,12 +1,8 @@
-// CommentsSection.js - Updated with pagination, sorting, and user comment prioritization
+// CommentsSection.js - Updated with REST API calls instead of Firestore
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { MessageCircle, Send, ThumbsUp, MoreVertical, Trash2, Edit, Flag, ChevronDown, TrendingUp, Clock } from 'lucide-react';
-import { fetchComments, addComment, deleteComment, likeComment, reportComment, updateComment } from '@/lib/firestore';
-import { serverTimestamp } from 'firebase/firestore';
-import { collection, query, where, orderBy, limit, onSnapshot, doc, getDoc, startAfter } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 import Image from 'next/image';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
@@ -28,14 +24,14 @@ const CommentsSection = ({ postId }) => {
     const [editingCommentId, setEditingCommentId] = useState(null);
     const [editContent, setEditContent] = useState('');
     const [sortBy, setSortBy] = useState(SORT_OPTIONS.NEWEST.value);
-    const [lastVisible, setLastVisible] = useState(null);
+    const [currentPage, setCurrentPage] = useState(1);
+    const commentsPerPage = 10;
 
     // Use the auth hook instead of prop
     const { user, canComment, canModerate, canDeleteComment, isCommentOwner } = useAuth();
     const router = useRouter();
 
     // Refs
-    const unsubscribeRef = useRef(null);
     const commentsEndRef = useRef(null);
     const scrollContainerRef = useRef(null);
 
@@ -43,151 +39,23 @@ const CommentsSection = ({ postId }) => {
     useEffect(() => {
         console.log('Auth state:', {
             hasUser: !!user,
-            user: user ? { uid: user.uid, name: user.displayName } : null,
+            user: user ? { id: user.id, name: user.displayName } : null,
             canComment: canComment(),
             canModerate: canModerate()
         });
     }, [user, canComment, canModerate]);
 
     /**
-     * Get or create visitor ID for anonymous users
+     * Fetch comments from API
      */
-    const getVisitorId = () => {
-        try {
-            let visitorId = localStorage.getItem('visitorId');
-            if (!visitorId) {
-                visitorId = 'visitor_' + Math.random().toString(36).substr(2, 9);
-                localStorage.setItem('visitorId', visitorId);
-            }
-            return visitorId;
-        } catch (error) {
-            // Fallback if localStorage is not available
-            return 'temp_visitor_' + Math.random().toString(36).substr(2, 9);
-        }
-    };
-
-    /**
-     * Create a query for comments based on sort option and pagination
-     */
-    const createCommentsQuery = useCallback((isInitialLoad = false) => {
-        const commentsRef = collection(db, 'posts', postId, 'comments');
-
-        // Determine order direction based on sort option
-        let orderField, orderDirection;
-        switch (sortBy) {
-            case SORT_OPTIONS.OLDEST.value:
-                orderField = 'createdAt';
-                orderDirection = 'asc';
-                break;
-            case SORT_OPTIONS.MOST_LIKED.value:
-                orderField = 'likes';
-                orderDirection = 'desc';
-                break;
-            case SORT_OPTIONS.NEWEST.value:
-            default:
-                orderField = 'createdAt';
-                orderDirection = 'desc';
-                break;
-        }
-
-        // Build the base query
-        let q = query(
-            commentsRef,
-            where('status', '==', 'visible'),
-            where('isDeleted', '==', false),
-            where('parentId', '==', null),
-            orderBy(orderField, orderDirection),
-            limit(10) // Load 10 comments at a time
-        );
-
-        // Add pagination if not initial load
-        if (!isInitialLoad && lastVisible) {
-            q = query(q, startAfter(lastVisible));
-        }
-
-        return q;
-    }, [postId, sortBy, lastVisible]);
-
-    /**
-  * Process comments snapshot to transform data
-  * NOW WRAPPED IN USECALLBACK
-  */
-    const processCommentsSnapshot = useCallback(async (snapshot) => {
-        const transformedComments = await Promise.all(
-            snapshot.docs.map(async (docSnapshot) => {
-                const commentData = {
-                    id: docSnapshot.id,
-                    ...docSnapshot.data(),
-                    createdAt: docSnapshot.data().createdAt?.toDate(),
-                    updatedAt: docSnapshot.data().updatedAt?.toDate(),
-                };
-
-                // If user is logged in, check if they liked or reported this comment
-                if (user?.uid) {
-                    try {
-                        // Check like status
-                        const likeRef = doc(db, `posts/${postId}/comments/${docSnapshot.id}/likes/user_${user.uid}`);
-                        const likeSnap = await getDoc(likeRef);
-                        commentData.likedByUser = likeSnap.exists();
-
-                        // Check report status
-                        const reportRef = doc(db, `posts/${postId}/comments/${docSnapshot.id}/reports/${user.uid}`);
-                        const reportSnap = await getDoc(reportRef);
-                        commentData.reportedByUser = reportSnap.exists();
-                    } catch (error) {
-                        console.error('Error checking status:', error);
-                        commentData.likedByUser = false;
-                        commentData.reportedByUser = false;
-                    }
-                } else {
-                    commentData.likedByUser = false;
-                    commentData.reportedByUser = false;
-                }
-
-                return {
-                    id: commentData.id,
-                    content: commentData.content,
-                    userId: commentData.userId,
-                    userName: commentData.userName,
-                    userAvatar: commentData.userAvatar,
-                    likes: commentData.likes || 0,
-                    likedByUser: commentData.likedByUser || false,
-                    reportedByUser: commentData.reportedByUser || false,
-                    status: commentData.status,
-                    isDeleted: commentData.isDeleted,
-                    parentId: commentData.parentId,
-                    createdAt: commentData.createdAt,
-                    updatedAt: commentData.updatedAt,
-                    isEdited: commentData.isEdited,
-                    author: {
-                        id: commentData.userId,
-                        name: commentData.userName || 'Anonymous',
-                        avatar: commentData.userAvatar || '/default-avatar.png',
-                    },
-                };
-            })
-        );
-
-        return transformedComments;
-    }, [user, postId]); // <-- Add dependencies here
-
-    /**
-     * Fetch comments with real-time listener
-     * UPDATED DEPENDENCY ARRAY
-     */
-    const fetchCommentsWithListener = useCallback(async (isInitialLoad = false) => {
-        console.log('Setting up comments listener for postId:', postId, 'isInitialLoad:', isInitialLoad);
+    const fetchComments = useCallback(async (isInitialLoad = false) => {
+        console.log('Fetching comments for postId:', postId, 'isInitialLoad:', isInitialLoad, 'sortBy:', sortBy);
 
         if (!postId) {
             console.error('ERROR: postId is undefined!');
             setComments([]);
             setLoading(false);
             return;
-        }
-
-        // Clean up any existing listener
-        if (unsubscribeRef.current) {
-            unsubscribeRef.current();
         }
 
         if (isInitialLoad) {
@@ -197,123 +65,73 @@ const CommentsSection = ({ postId }) => {
         }
 
         try {
-            // Create two queries: one for current user's comments, one for others
-            const userCommentsQuery = user ? query(
-                collection(db, 'posts', postId, 'comments'),
-                where('status', '==', 'visible'),
-                where('isDeleted', '==', false),
-                where('parentId', '==', null),
-                where('userId', '==', user.uid),
-                orderBy('createdAt', 'desc'),
-                limit(5) // Limit to 5 of user's own comments
-            ) : null;
+            const page = isInitialLoad ? 1 : currentPage;
+            const res = await fetch(`/api/posts/${postId}/comments?page=${page}&limit=${commentsPerPage}&sort=${sortBy}`);
+            const data = await res.json();
 
-            const otherCommentsQuery = createCommentsQuery(isInitialLoad);
-
-            // Set up listeners for both queries
-            const userUnsubscribe = userCommentsQuery ? onSnapshot(userCommentsQuery, async (userSnapshot) => {
-                const userComments = await processCommentsSnapshot(userSnapshot); // <-- Now using the memoized version
-
-                // Set up listener for other comments
-                const otherUnsubscribe = onSnapshot(otherCommentsQuery, async (otherSnapshot) => {
-                    const otherComments = await processCommentsSnapshot(otherSnapshot); // <-- And here too
-
-                    // Merge comments, putting user's comments first
-                    const mergedComments = [...userComments];
-
-                    // Add other comments that aren't already in user's comments
-                    otherComments.forEach(otherComment => {
-                        if (!userComments.find(uc => uc.id === otherComment.id)) {
-                            mergedComments.push(otherComment);
-                        }
-                    });
-
-                    if (isInitialLoad) {
-                        setComments(mergedComments);
-                        setLoading(false);
-                    } else {
-                        // Append new comments for pagination
-                        setComments(prevComments => {
-                            // Filter out duplicates that might already exist
-                            const existingIds = new Set(prevComments.map(c => c.id));
-                            const newComments = mergedComments.filter(c => !existingIds.has(c.id));
-                            return [...prevComments, ...newComments];
-                        });
-                        setLoadingMore(false);
-                    }
-
-                    // Update pagination state
-                    if (otherSnapshot.docs.length < 10) {
-                        setHasMore(false);
-                    } else {
-                        setLastVisible(otherSnapshot.docs[otherSnapshot.docs.length - 1]);
-                    }
-                }, (error) => {
-                    console.error('Error in other comments listener:', error);
-                    if (isInitialLoad) setLoading(false);
-                    else setLoadingMore(false);
-                    toast.error('Failed to load comments. Please refresh the page.');
-                });
-
-                // Store the unsubscribe function for cleanup
-                unsubscribeRef.current = () => {
-                    otherUnsubscribe();
-                };
-            }, (error) => {
-                console.error('Error in user comments listener:', error);
-                if (isInitialLoad) setLoading(false);
-                else setLoadingMore(false);
-                toast.error('Failed to load comments. Please refresh the page.');
-            }) : null;
-
-            // If no user, just set up the other comments listener
-            if (!user) {
-                const otherUnsubscribe = onSnapshot(otherCommentsQuery, async (otherSnapshot) => {
-                    const otherComments = await processCommentsSnapshot(otherSnapshot); // <-- And here
-
-                    if (isInitialLoad) {
-                        setComments(otherComments);
-                        setLoading(false);
-                    } else {
-                        setComments(prevComments => {
-                            const existingIds = new Set(prevComments.map(c => c.id));
-                            const newComments = otherComments.filter(c => !existingIds.has(c.id));
-                            return [...prevComments, ...newComments];
-                        });
-                        setLoadingMore(false);
-                    }
-
-                    if (otherSnapshot.docs.length < 10) {
-                        setHasMore(false);
-                    } else {
-                        setLastVisible(otherSnapshot.docs[otherSnapshot.docs.length - 1]);
-                    }
-                }, (error) => {
-                    console.error('Error in comments listener:', error);
-                    if (isInitialLoad) setLoading(false);
-                    else setLoadingMore(false);
-                    toast.error('Failed to load comments. Please refresh the page.');
-                });
-
-                unsubscribeRef.current = otherUnsubscribe;
+            if (!data.success) {
+                throw new Error(data.error || 'Failed to load comments');
             }
+
+            const fetchedComments = (data.data || []).map(c => ({
+                id: c.id,
+                content: c.content,
+                userId: c.userId,
+                userName: c.userName || c.author?.name || 'Anonymous',
+                userAvatar: c.userAvatar || c.author?.avatar || '/default-avatar.png',
+                likes: c.likes || 0,
+                likedByUser: c.likedByUser || false,
+                reportedByUser: c.reportedByUser || false,
+                status: c.status,
+                isDeleted: c.isDeleted,
+                parentId: c.parentId,
+                createdAt: c.createdAt,
+                updatedAt: c.updatedAt,
+                isEdited: c.isEdited || false,
+                author: {
+                    id: c.userId,
+                    name: c.userName || c.author?.name || 'Anonymous',
+                    avatar: c.userAvatar || c.author?.avatar || '/default-avatar.png',
+                },
+            }));
+
+            if (isInitialLoad) {
+                setComments(fetchedComments);
+                setLoading(false);
+            } else {
+                setComments(prevComments => {
+                    const existingIds = new Set(prevComments.map(c => c.id));
+                    const newComments = fetchedComments.filter(c => !existingIds.has(c.id));
+                    return [...prevComments, ...newComments];
+                });
+                setLoadingMore(false);
+            }
+
+            // Update pagination
+            const pagination = data.pagination || {};
+            setHasMore(pagination.hasMore || fetchedComments.length === commentsPerPage);
+            if (!isInitialLoad) {
+                setCurrentPage(prev => prev + 1);
+            } else {
+                setCurrentPage(2);
+            }
+
         } catch (error) {
-            console.error('Error setting up comments listener:', error);
+            console.error('Error fetching comments:', error);
             if (isInitialLoad) setLoading(false);
             else setLoadingMore(false);
             toast.error('Failed to load comments. Please refresh the page.');
         }
-    }, [postId, user, createCommentsQuery, processCommentsSnapshot]);
-
+    }, [postId, sortBy, currentPage, commentsPerPage]);
 
     /**
      * Load more comments when scrolling to bottom
      */
     const loadMoreComments = useCallback(() => {
         if (!loadingMore && hasMore && !loading) {
-            fetchCommentsWithListener(false);
+            fetchComments(false);
         }
-    }, [loadingMore, hasMore, loading, fetchCommentsWithListener]);
+    }, [loadingMore, hasMore, loading, fetchComments]);
 
     /**
      * Handle scroll event to detect when user reaches bottom
@@ -330,23 +148,16 @@ const CommentsSection = ({ postId }) => {
     }, [loadMoreComments]);
 
     /**
-     * Set up comments listener when postId, user, or sortBy changes
+     * Set up comments fetch when postId, user, or sortBy changes
      */
     useEffect(() => {
         // Reset pagination state when sort changes
-        setLastVisible(null);
+        setCurrentPage(1);
         setHasMore(true);
 
         // Fetch comments with new sort option
-        fetchCommentsWithListener(true);
-
-        // Clean up the listener when the component unmounts
-        return () => {
-            if (unsubscribeRef.current) {
-                unsubscribeRef.current();
-            }
-        };
-    }, [fetchCommentsWithListener, sortBy]);
+        fetchComments(true);
+    }, [fetchComments, sortBy]);
 
     /**
      * Set up scroll event listener
@@ -398,19 +209,24 @@ const CommentsSection = ({ postId }) => {
         try {
             setSubmitting(true);
 
-            const result = await addComment(postId, {
-                content: newComment,
-                parentId: null,
-                userName: user.displayName || 'Anonymous',
-                userAvatar: user.photoURL || '',
+            const res = await fetch(`/api/posts/${postId}/comments/add`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    content: newComment,
+                    parentId: null,
+                }),
             });
+            const result = await res.json();
 
             if (result.success) {
                 setNewComment('');
-                // No need to fetch comments again as the real-time listener will update the UI
+                // Re-fetch comments to show the new one
+                fetchComments(true);
                 toast.success('Comment posted successfully!');
             } else {
-                toast.error(result.message || 'Failed to post comment.');
+                toast.error(result.message || result.error || 'Failed to post comment.');
             }
         } catch (error) {
             console.error('Error submitting comment:', error);
@@ -435,12 +251,19 @@ const CommentsSection = ({ postId }) => {
         if (!editContent.trim()) return;
 
         try {
-            const result = await updateComment(postId, commentId, editContent);
+            const res = await fetch(`/api/comments/${commentId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ content: editContent }),
+            });
+            const result = await res.json();
 
             if (result.success) {
                 setEditingCommentId(null);
                 setEditContent('');
-                // No need to fetch comments again as the real-time listener will update the UI
+                // Re-fetch to reflect changes
+                fetchComments(true);
                 toast.success('Comment updated successfully!');
             } else {
                 toast.error('Failed to update comment: ' + (result.error || 'Unknown error'));
@@ -458,10 +281,15 @@ const CommentsSection = ({ postId }) => {
         if (!confirm('Are you sure you want to delete this comment?')) return;
 
         try {
-            const result = await deleteComment(postId, commentId);
+            const res = await fetch(`/api/comments/${commentId}`, {
+                method: 'DELETE',
+                credentials: 'include',
+            });
+            const result = await res.json();
 
             if (result.success) {
-                // No need to fetch comments again as the real-time listener will update the UI
+                // Re-fetch to reflect changes
+                fetchComments(true);
                 toast.success('Comment deleted successfully!');
             } else {
                 toast.error('Failed to delete comment: ' + (result.error || 'Unknown error'));
@@ -477,22 +305,9 @@ const CommentsSection = ({ postId }) => {
      */
     const handleLikeComment = async (commentId) => {
         try {
-            if (!user || !user.uid) {
+            if (!user || !user.id) {
                 const currentPath = window.location.pathname + window.location.search;
                 router.push(`/auth?redirect=${encodeURIComponent(currentPath + '#comments')}`);
-                return;
-            }
-
-            // Prepare user data with correct structure
-            const userData = {
-                userId: user.uid,
-                userName: user.displayName || 'Anonymous',
-                userAvatar: user.photoURL || '',
-            };
-
-            // Safety check
-            if (!userData.userId) {
-                console.error('User ID is undefined. Cannot like comment.');
                 return;
             }
 
@@ -512,12 +327,16 @@ const CommentsSection = ({ postId }) => {
                 })
             );
 
-            // Pass the userData object directly
-            const result = await likeComment(postId, commentId, userData);
+            const res = await fetch(`/api/comments/${commentId}/like`, {
+                method: 'POST',
+                credentials: 'include',
+            });
+            const result = await res.json();
 
             if (result.success) {
                 toast.success(result.liked ? 'Comment liked!' : 'Comment unliked!');
-                // The real-time listener will update the UI with the correct count
+                // Re-fetch to get correct count
+                fetchComments(true);
             } else {
                 // Revert the optimistic update on failure
                 setComments(originalComments);
@@ -528,22 +347,28 @@ const CommentsSection = ({ postId }) => {
             toast.error('An error occurred. Please try again.');
         }
     };
+
     /**
      * Report a comment
      */
     const handleReportComment = async (commentId) => {
-        if (!user || !user.uid) {
+        if (!user || !user.id) {
             const currentPath = window.location.pathname + window.location.search;
             router.push(`/auth?redirect=${encodeURIComponent(currentPath + '#comments')}`);
             return;
         }
 
         try {
-            const result = await reportComment(postId, commentId, user.uid);
+            const res = await fetch(`/api/comments/${commentId}/report`, {
+                method: 'POST',
+                credentials: 'include',
+            });
+            const result = await res.json();
 
             if (result.success) {
                 toast.success('Comment reported. Thank you for your feedback.');
-                // The real-time listener will update the UI with the reported status
+                // Re-fetch to reflect the reported status
+                fetchComments(true);
             } else {
                 toast.error(result.error || 'Failed to report comment');
             }
@@ -559,8 +384,7 @@ const CommentsSection = ({ postId }) => {
     const formatTimeAgo = (date) => {
         if (!date) return 'Just now';
 
-        // Convert Firestore timestamp to Date if needed
-        const commentDate = date.toDate ? date.toDate() : new Date(date);
+        const commentDate = new Date(date);
         const now = new Date();
         const diffInSeconds = Math.floor((now - commentDate) / 1000);
 
@@ -805,7 +629,7 @@ const CommentsSection = ({ postId }) => {
                                             <span className="font-medium text-sm text-gray-900">
                                                 {comment.author.name}
                                             </span>
-                                            {comment.userId === user?.uid && (
+                                            {comment.userId === user?.id && (
                                                 <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
                                                     You
                                                 </span>

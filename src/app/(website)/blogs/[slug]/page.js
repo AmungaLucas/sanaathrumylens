@@ -1,15 +1,76 @@
 import { generateBlogMetadata } from "@/app/seo/meta";
 import BlogPostClient from "./BlogPostClient";
-import { fetchCompleteArticleData } from "@/lib/firestore";
+import { query } from "@/lib/db";
+import { formatPost } from "@/lib/apiHelper";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import Link from "next/link";
 import { FileQuestion, Home } from "lucide-react";
 
+async function fetchPostBySlug(slug) {
+    const result = await query(
+        `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar, a.bio as author_bio
+         FROM posts p LEFT JOIN authors a ON p.author_id = a.id
+         WHERE p.slug = ? AND p.status = 'published' AND p.is_deleted = 0 LIMIT 1`,
+        [slug]
+    );
+    if (!result.rows.length) return null;
+    return formatPost(result.rows[0]);
+}
+
+async function fetchRecentStories(limit = 4) {
+    const result = await query(
+        `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar
+         FROM posts p LEFT JOIN authors a ON p.author_id = a.id
+         WHERE p.status = 'published' AND p.is_deleted = 0
+         ORDER BY p.published_at DESC LIMIT ?`,
+        [limit]
+    );
+    return (result.rows || []).map(formatPost);
+}
+
+async function fetchCategories() {
+    const result = await query(
+        "SELECT * FROM categories WHERE is_active = 1 ORDER BY name"
+    );
+    return result.rows || [];
+}
+
+async function fetchArticlesByAuthor(authorId, excludePostId, limit = 4) {
+    const result = await query(
+        `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar
+         FROM posts p LEFT JOIN authors a ON p.author_id = a.id
+         WHERE p.author_id = ? AND p.status = 'published' AND p.is_deleted = 0 AND p.id != ?
+         ORDER BY p.published_at DESC LIMIT ?`,
+        [authorId, excludePostId, limit]
+    );
+    return (result.rows || []).map(formatPost);
+}
+
+async function fetchRelatedPosts(categoryIds, excludePostId, limit = 4) {
+    if (!categoryIds || !categoryIds.length) return [];
+    // Simple approach: get recent posts excluding current, then filter client-side
+    const result = await query(
+        `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar
+         FROM posts p LEFT JOIN authors a ON p.author_id = a.id
+         WHERE p.status = 'published' AND p.is_deleted = 0 AND p.id != ?
+         ORDER BY p.published_at DESC LIMIT 10`,
+        [excludePostId]
+    );
+    const posts = (result.rows || []).map(formatPost);
+    // Filter by category overlap
+    return posts
+        .filter(p => {
+            if (!p.categoryIds || !p.categoryIds.length) return false;
+            return p.categoryIds.some(cid => categoryIds.includes(cid));
+        })
+        .slice(0, limit);
+}
+
 export async function generateMetadata({ params }) {
     const { slug } = await params;
-    const data = await fetchCompleteArticleData(slug);
+    const post = await fetchPostBySlug(slug);
 
-    if (!data || !data.post) {
+    if (!post) {
         return {
             title: "Article Not Found",
             description: "The requested article could not be found.",
@@ -17,59 +78,21 @@ export async function generateMetadata({ params }) {
     }
 
     return generateBlogMetadata({
-        title: data.post.title,
-        excerpt: data.post.excerpt,
+        title: post.title,
+        excerpt: post.excerpt,
         slug,
-        ogImage: data.post.coverImage || data.post.featuredImage,
-        authorName: data.post.author?.name,
-        publishedDate: data.post.publishedAt,
+        ogImage: post.coverImage || post.featuredImage,
+        authorName: post.author?.name,
+        publishedDate: post.publishedAt,
     });
-}
-
-// Helper function to deeply serialize all objects, including Firestore Timestamps
-function serializeForClient(data) {
-    if (data === null || data === undefined) {
-        return data;
-    }
-
-    // Handle arrays
-    if (Array.isArray(data)) {
-        return data.map(item => serializeForClient(item));
-    }
-
-    // Handle objects (including Firestore Timestamps)
-    if (typeof data === 'object') {
-        // Check if it's a Firestore Timestamp
-        if (data.seconds !== undefined && data.nanoseconds !== undefined) {
-            return new Date(data.seconds * 1000 + data.nanoseconds / 1000000).toISOString();
-        }
-
-        // Check if it's a Date object
-        if (data instanceof Date) {
-            return data.toISOString();
-        }
-
-        // Handle regular objects
-        const result = {};
-        for (const key in data) {
-            if (data.hasOwnProperty(key)) {
-                result[key] = serializeForClient(data[key]);
-            }
-        }
-        return result;
-    }
-
-    // Return primitives as-is
-    return data;
 }
 
 export default async function Page({ params }) {
     const { slug } = await params;
 
-    // Fetch data on server
-    const data = await fetchCompleteArticleData(slug);
+    const post = await fetchPostBySlug(slug);
 
-    if (!data?.post) {
+    if (!post) {
         return (
             <div className="min-h-screen flex items-center justify-center p-8 bg-base-bg">
                 <div className="text-center max-w-md p-10 bg-surface rounded-2xl border border-base-border shadow-xl">
@@ -89,14 +112,21 @@ export default async function Page({ params }) {
         );
     }
 
-    // Serialize ALL data before passing to client component
-    const serializedData = {
-        post: serializeForClient(data.post),
-        recentStories: serializeForClient(data.recentStories || []),
-        categories: serializeForClient(data.categories || []),
-        articlesByAuthor: serializeForClient(data.articlesByAuthor || []),
-        relatedArticles: serializeForClient(data.relatedArticles || []),
-        viewCount: data.viewCount || 0
+    // Fetch related data
+    const [recentStories, categories, articlesByAuthor, relatedArticles] = await Promise.all([
+        fetchRecentStories(4).then(stories => stories.filter(s => s.id !== post.id).slice(0, 4)),
+        fetchCategories(),
+        post.author?.id ? fetchArticlesByAuthor(post.author.id, post.id, 4) : Promise.resolve([]),
+        fetchRelatedPosts(post.categoryIds || [], post.id, 4),
+    ]);
+
+    const initialPostData = {
+        post,
+        recentStories,
+        categories,
+        articlesByAuthor,
+        relatedArticles,
+        viewCount: post.stats?.views || 0,
     };
 
     return (
@@ -107,21 +137,21 @@ export default async function Page({ params }) {
                     __html: JSON.stringify({
                         '@context': 'https://schema.org',
                         '@type': 'Article',
-                        headline: data.post.title,
-                        description: data.post.excerpt,
+                        headline: post.title,
+                        description: post.excerpt,
                         author: {
                             '@type': 'Person',
-                            name: data.post.author?.name || 'Anonymous'
+                            name: post.author?.name || 'Anonymous'
                         },
-                        datePublished: data.post.publishedAt,
-                        image: data.post.coverImage || data.post.featuredImage,
+                        datePublished: post.publishedAt,
+                        image: post.coverImage || post.featuredImage,
                     }),
                 }}
             />
 
             <ErrorBoundary>
                 <BlogPostClient
-                    initialPostData={serializedData}
+                    initialPostData={initialPostData}
                     slug={slug}
                 />
             </ErrorBoundary>

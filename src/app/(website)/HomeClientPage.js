@@ -6,9 +6,9 @@ import AdsGoogle from '@/components/AdsGoogle';
 import { ChevronLeft, ChevronRight, MessageCircle, Eye, Heart, Calendar, MapPin, User, ArrowRight, ChevronDown } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { auth } from '@/lib/firebase';
 import { formatDistanceToNow } from 'date-fns';
 import { useBlogData } from '@/hooks/useBlogData';
+import { useAuth } from '@/contexts/AuthContext';
 import HeroCarousel from './_components/HeroCarousel';
 
 // Skeleton Components
@@ -60,7 +60,7 @@ export default function HomeClientPage({ siteUrl, siteName }) {
     const [currentSlide, setCurrentSlide] = useState(0);
     const [email, setEmail] = useState('');
     const [subscribeStatus, setSubscribeStatus] = useState(null);
-    const [user, setUser] = useState(null);
+    const { isAuthenticated } = useAuth();
     const [likedPosts, setLikedPosts] = useState({});
 
     // Pagination states
@@ -99,7 +99,7 @@ export default function HomeClientPage({ siteUrl, siteName }) {
     const formatTimeAgo = (date) => {
         if (!date) return 'Recently';
         try {
-            const dateObj = date.toDate ? date.toDate() : new Date(date);
+            const dateObj = new Date(date);
             return formatDistanceToNow(dateObj, { addSuffix: true });
         } catch (error) {
             console.error('Error formatting date:', error);
@@ -110,7 +110,7 @@ export default function HomeClientPage({ siteUrl, siteName }) {
     const formatDate = (date) => {
         if (!date) return 'Date TBD';
         try {
-            const dateObj = date.toDate ? date.toDate() : new Date(date);
+            const dateObj = new Date(date);
             return dateObj.toLocaleDateString('en-US', {
                 month: 'short',
                 day: 'numeric',
@@ -126,8 +126,8 @@ export default function HomeClientPage({ siteUrl, siteName }) {
         if (!startDate) return 'Date TBD';
 
         try {
-            const start = startDate.toDate ? startDate.toDate() : new Date(startDate);
-            const end = endDate ? (endDate.toDate ? endDate.toDate() : new Date(endDate)) : null;
+            const start = new Date(startDate);
+            const end = endDate ? new Date(endDate) : null;
 
             if (!end || start.toDateString() === end.toDateString()) {
                 return formatDate(startDate);
@@ -160,22 +160,13 @@ export default function HomeClientPage({ siteUrl, siteName }) {
         return () => window.removeEventListener('resize', handleResize);
     }, []);
 
-    // Monitor auth state
-    useEffect(() => {
-        const unsubscribe = auth.onAuthStateChanged((user) => {
-            setUser(user);
-            // Reset liked posts when user changes
-            if (!user) {
-                setLikedPosts({});
-            }
-        });
-        return () => unsubscribe();
-    }, []);
-
     // Fetch liked status for featured and popular articles only when user changes
     useEffect(() => {
         const fetchInitialLikes = async () => {
-            if (!user) return;
+            if (!isAuthenticated()) {
+                setLikedPosts({});
+                return;
+            }
 
             try {
                 // Fetch for featured article
@@ -203,10 +194,8 @@ export default function HomeClientPage({ siteUrl, siteName }) {
             }
         };
 
-        if (user) {
-            fetchInitialLikes();
-        }
-    }, [user, featuredArticle?.id, popularArticles.length]); // Only depend on IDs and length, not full arrays
+        fetchInitialLikes();
+    }, [isAuthenticated, featuredArticle?.id, popularArticles, checkUserLike]);
 
     // Hero slides
     const heroSlides = [
@@ -250,7 +239,7 @@ export default function HomeClientPage({ siteUrl, siteName }) {
         e.preventDefault();
         e.stopPropagation();
 
-        if (!user) {
+        if (!isAuthenticated()) {
             alert('Please log in to like posts');
             return;
         }

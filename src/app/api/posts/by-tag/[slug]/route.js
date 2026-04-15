@@ -1,38 +1,45 @@
-import { db } from '@/lib/firebaseAdmin';
-import { NextResponse } from 'next/server';
+// src/app/api/posts/by-tag/[slug]/route.js
+// GET: Fetch posts by tag slug
+import { query, initDatabase } from '@/lib/db';
+import { formatPost, successResponse, errorResponse } from '@/lib/apiHelper';
 
-export async function GET(req, { params }) {
-    try {
-        const { slug } = params;
-        const decodedSlug = decodeURIComponent(slug);
+let dbReady = false;
+async function ensureDb() {
+  if (!dbReady) {
+    await initDatabase();
+    dbReady = true;
+  }
+}
 
-        // Fetch posts where tags array includes this tag
-        const snapshot = await db
-            .collection('posts')
-            .where('status', '==', 'published')
-            .where('isDeleted', '==', false)
-            .where('tags', 'array-contains', decodedSlug)
-            .orderBy('publishedAt', 'desc')
-            .get();
+export async function GET(request, { params }) {
+  try {
+    await ensureDb();
+    const { slug } = await params;
 
-        const posts = snapshot.docs.map((doc) => {
-            const data = doc.data();
-            return {
-                id: doc.id,
-                slug: data.slug || doc.id,
-                title: data.title || '',
-                excerpt: data.excerpt || data.description || '',
-                description: data.description || '',
-                coverImage: data.coverImage || data.featuredImage || null,
-                publishedAt: data.publishedAt ? data.publishedAt.toDate().toISOString() : null,
-                author: data.authorSnapshot || data.author || null,
-                tags: data.tags || [],
-            };
-        });
-
-        return NextResponse.json(posts);
-    } catch (err) {
-        console.error('Error fetching posts by tag:', err);
-        return NextResponse.json({ error: err.message }, { status: 500 });
+    if (!slug) {
+      return errorResponse('Tag slug is required', 400);
     }
+
+    const decodedSlug = decodeURIComponent(slug);
+
+    // Fetch posts where the tags JSON field contains this tag slug
+    const rows = await query(
+      `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar, a.bio as author_bio
+       FROM posts p
+       LEFT JOIN authors a ON p.author_id = a.id
+       WHERE p.status = 'published' AND p.is_deleted = 0
+         AND p.tags LIKE ?
+       ORDER BY p.published_at DESC`,
+      [`%"${decodedSlug}"%`]
+    );
+
+    const posts = Array.isArray(rows)
+      ? rows.map(formatPost)
+      : [];
+
+    return successResponse({ posts, tag: decodedSlug });
+  } catch (err) {
+    console.error('Error fetching posts by tag:', err);
+    return errorResponse('Failed to fetch posts by tag', 500);
+  }
 }

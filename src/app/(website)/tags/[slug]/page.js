@@ -1,30 +1,20 @@
-import { fetchPostsByTag } from '@/lib/firestore';
+import { query, initDatabase } from '@/lib/db';
+import { formatPost } from '@/lib/apiHelper';
 import { generateTagMetadata } from '@/app/seo/meta';
 import Link from 'next/link';
 import Image from 'next/image';
 
+let dbReady = false;
+async function ensureDb() {
+    if (!dbReady) {
+        await initDatabase();
+        dbReady = true;
+    }
+}
+
 export async function generateMetadata({ params }) {
     const { slug } = await params;
     return generateTagMetadata(slug);
-}
-
-// Helper to serialize Firestore data
-function serializeForClient(data) {
-    if (Array.isArray(data)) return data.map(serializeForClient);
-    if (data && typeof data === 'object' && !(data instanceof Date)) {
-        if (data.seconds !== undefined) {
-            const date = new Date(data.seconds * 1000 + (data.nanoseconds || 0) / 1000000);
-            return isNaN(date.getTime()) ? null : date.toISOString();
-        }
-        const result = {};
-        for (const key in data) {
-            if (data.hasOwnProperty(key)) {
-                result[key] = serializeForClient(data[key]);
-            }
-        }
-        return result;
-    }
-    return data;
 }
 
 export default async function TagPage({ params }) {
@@ -35,13 +25,22 @@ export default async function TagPage({ params }) {
     let error = null;
 
     try {
-        articles = await fetchPostsByTag(decodedSlug);
+        await ensureDb();
+
+        const rows = await query(
+            `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar
+             FROM posts p LEFT JOIN authors a ON p.author_id = a.id
+             WHERE p.status = 'published' AND p.is_deleted = 0
+             AND (p.tags LIKE ?)
+             ORDER BY p.published_at DESC`,
+            [`%"${decodedSlug}"%`]
+        );
+
+        articles = Array.isArray(rows) ? rows.map(formatPost) : [];
     } catch (err) {
         console.error('Error fetching articles by tag:', err);
         error = err.message;
     }
-
-    const serializedArticles = serializeForClient(articles);
 
     if (error) {
         return (
@@ -60,7 +59,7 @@ export default async function TagPage({ params }) {
                         #{decodedSlug}
                     </h1>
                     <p className="text-gray-600 dark:text-gray-400 text-lg">
-                        {serializedArticles.length} article{serializedArticles.length !== 1 ? 's' : ''} tagged with this topic
+                        {articles.length} article{articles.length !== 1 ? 's' : ''} tagged with this topic
                     </p>
                 </div>
             </div>
@@ -68,9 +67,9 @@ export default async function TagPage({ params }) {
             {/* Articles with tag */}
             <div className="py-12 px-4 sm:px-6 lg:px-8">
                 <div className="max-w-4xl mx-auto">
-                    {serializedArticles.length > 0 ? (
+                    {articles.length > 0 ? (
                         <div className="space-y-6">
-                            {serializedArticles.map((article) => (
+                            {articles.map((article) => (
                                 <article key={article.id} className="border border-gray-200 dark:border-gray-800 rounded-lg p-6 hover:shadow-lg transition-shadow">
                                     <div className="flex gap-4">
                                         {(article.coverImage || article.featuredImage) && (
@@ -96,7 +95,7 @@ export default async function TagPage({ params }) {
                                             </p>
                                             <div className="flex items-center gap-4 mt-4 text-sm text-gray-500">
                                                 <time dateTime={article.publishedAt}>
-                                                    {new Date(article.publishedAt).toLocaleDateString()}
+                                                    {article.publishedAt ? new Date(article.publishedAt).toLocaleDateString() : ''}
                                                 </time>
                                                 {article.author?.name && (
                                                     <Link href={`/author/${article.author.slug || article.author.name?.toLowerCase().replace(/\s+/g, '-')}`} className="hover:text-blue-600">

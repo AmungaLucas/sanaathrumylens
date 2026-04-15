@@ -1,18 +1,33 @@
 // src/app/og/events/[slug]/route.js
 
 import { ImageResponse } from '@vercel/og';
-import { fetchEventBySlug } from '@/lib/serverFirestore';
+import { query, initDatabase } from '@/lib/db';
 
 export const runtime = 'nodejs';
+
+let dbReady = false;
+async function ensureDb() {
+    if (!dbReady) {
+        await initDatabase();
+        dbReady = true;
+    }
+}
 
 export default async function handler(req, { params }) {
     try {
         const { slug } = params;
-        const event = await fetchEventBySlug(slug);
+
+        await ensureDb();
+        const rows = await query(
+            `SELECT * FROM events WHERE slug = ? AND status = 'published' AND is_deleted = 0 LIMIT 1`,
+            [slug]
+        );
+
+        const event = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
 
         const title = event?.title || 'Event';
-        const date = event?.startDate ? new Date(event.startDate).toLocaleDateString() : '';
-        const bg = event?.coverImage || event?.featuredImage || null;
+        const date = event?.start_date ? new Date(event.start_date).toLocaleDateString() : '';
+        const bg = event?.cover_image || event?.featured_image || null;
 
         return new ImageResponse(
             (

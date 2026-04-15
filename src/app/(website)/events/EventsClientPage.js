@@ -1,8 +1,6 @@
 // src/app/events/EventsClientPage.jsx
 "use client";
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { collection, getDocs, orderBy, query, where } from "firebase/firestore";
-import { db } from "@/lib/firebase";
 import Link from "next/link";
 import Image from "next/image";
 import {
@@ -352,20 +350,20 @@ export default function EventsClientPage() {
     useEffect(() => {
         async function fetchEvents() {
             try {
-                const q = query(
-                    collection(db, "events"),
-                    where("status", "==", "published"),
-                    where("isDeleted", "==", false),
-                    orderBy("startDate", "asc")
-                );
+                // Fetch ALL events (including past) for client-side filtering
+                const res = await fetch('/api/events?upcoming=false&limit=1000');
+                const json = await res.json();
 
-                const snap = await getDocs(q);
+                if (!json.success) {
+                    throw new Error(json.error || 'Failed to fetch events');
+                }
 
-                const data = snap.docs.map((doc) => ({
-                    id: doc.id,
-                    ...doc.data(),
-                    startDate: doc.data().startDate?.toDate(),
-                    endDate: doc.data().endDate?.toDate(),
+                const data = (json.data.events || []).map((e) => ({
+                    ...e,
+                    startDate: e.startDate ? new Date(e.startDate) : null,
+                    endDate: e.endDate ? new Date(e.endDate) : null,
+                    // Parse location if it's a JSON string
+                    location: typeof e.location === 'string' ? (() => { try { return JSON.parse(e.location); } catch { return null; } })() : e.location,
                 }));
 
                 setEvents(data);
@@ -560,7 +558,7 @@ export default function EventsClientPage() {
                                     'https://schema.org/OfflineEventAttendanceMode',
                                 'location': event.isOnline ? {
                                     '@type': 'VirtualLocation',
-                                    'url': event.onlineUrl || `${siteUrl}/events/${event.slug || event.id}`
+                                    'url': event.onlineUrl || `${SITE_URL}/events/${event.slug || event.id}`
                                 } : {
                                     '@type': 'Place',
                                     'name': event.location?.venue || 'Location TBD',

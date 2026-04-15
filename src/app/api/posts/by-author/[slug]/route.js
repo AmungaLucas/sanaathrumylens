@@ -1,54 +1,66 @@
-import { db } from '@/lib/firebaseAdmin';
-import { NextResponse } from 'next/server';
+// src/app/api/posts/by-author/[slug]/route.js
+// GET: Fetch posts by author slug
+import { query, initDatabase } from '@/lib/db';
+import { formatPost, successResponse, errorResponse } from '@/lib/apiHelper';
 
-export async function GET(req, { params }) {
-    try {
-        const { slug } = params;
+let dbReady = false;
+async function ensureDb() {
+  if (!dbReady) {
+    await initDatabase();
+    dbReady = true;
+  }
+}
 
-        if (!slug) {
-            return NextResponse.json({ error: 'Author slug is required' }, { status: 400 });
-        }
+export async function GET(request, { params }) {
+  try {
+    await ensureDb();
+    const { slug } = await params;
 
-        // Check if Firestore is initialized
-        if (!db) {
-            throw new Error('Firestore is not initialized');
-        }
-
-        // Fetch posts where author.slug matches
-        const snapshot = await db
-            .collection('posts')
-            .where('status', '==', 'published')
-            .where('isDeleted', '==', false)
-            .orderBy('publishedAt', 'desc')
-            .get();
-
-        const posts = snapshot.docs
-            .map((doc) => {
-                const data = doc.data();
-                const authorSlug =
-                    data.authorSnapshot?.slug ||
-                    data.author?.slug ||
-                    (data.author?.name ? data.author.name.toLowerCase().replace(/\s+/g, '-') : null);
-
-                return {
-                    id: doc.id,
-                    slug: data.slug || doc.id,
-                    title: data.title || '',
-                    excerpt: data.excerpt || data.description || '',
-                    coverImage: data.coverImage || data.featuredImage || null,
-                    publishedAt: data.publishedAt ? data.publishedAt.toDate().toISOString() : null,
-                    author: data.authorSnapshot || data.author || null,
-                    authorSlug,
-                };
-            })
-            .filter((post) => post.authorSlug === slug);
-
-        return NextResponse.json(posts);
-    } catch (err) {
-        console.error('Error fetching posts by author:', err);
-        return NextResponse.json({
-            error: err.message,
-            details: 'Failed to fetch posts. Please check server logs.'
-        }, { status: 500 });
+    if (!slug) {
+      return errorResponse('Author slug is required', 400);
     }
+
+    // Find the author by slug
+    const authorRows = await query(
+      'SELECT id, name, slug, bio, avatar FROM authors WHERE slug = ? LIMIT 1',
+      [slug]
+    );
+
+    let authorId = null;
+    let authorData = null;
+
+    if (Array.isArray(authorRows) && authorRows.length > 0) {
+      authorId = authorRows[0].id;
+      authorData = {
+        id: authorRows[0].id,
+        name: authorRows[0].name,
+        slug: authorRows[0].slug,
+        bio: authorRows[0].bio,
+        avatar: authorRows[0].avatar,
+      };
+    }
+
+    if (!authorId) {
+      return successResponse({ posts: [], author: null });
+    }
+
+    // Fetch published posts by this author
+    const rows = await query(
+      `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar, a.bio as author_bio
+       FROM posts p
+       LEFT JOIN authors a ON p.author_id = a.id
+       WHERE p.author_id = ? AND p.status = 'published' AND p.is_deleted = 0
+       ORDER BY p.published_at DESC`,
+      [authorId]
+    );
+
+    const posts = Array.isArray(rows)
+      ? rows.map(formatPost)
+      : [];
+
+    return successResponse({ posts, author: authorData });
+  } catch (err) {
+    console.error('Error fetching posts by author:', err);
+    return errorResponse('Failed to fetch posts by author', 500);
+  }
 }

@@ -1,19 +1,29 @@
 import Link from 'next/link';
-import { db } from '@/lib/firebaseAdmin';
+import { query, initDatabase } from '@/lib/db';
 
 export const revalidate = 3600; // Revalidate every hour
 
+let dbReady = false;
+async function ensureDb() {
+    if (!dbReady) {
+        await initDatabase();
+        dbReady = true;
+    }
+}
+
 async function getAuthors() {
     try {
-        const snapshot = await db.collection('authors')
-            .where('isActive', '==', true)
-            .orderBy('name')
-            .get();
-
-        return snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-        }));
+        await ensureDb();
+        const rows = await query('SELECT id, slug, name, bio, avatar, created_at, updated_at FROM authors ORDER BY name ASC');
+        return Array.isArray(rows) ? rows.map((row) => ({
+            id: row.id,
+            slug: row.slug,
+            name: row.name,
+            bio: row.bio,
+            avatar: row.avatar,
+            createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+            updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+        })) : [];
     } catch (error) {
         console.error('Error fetching authors:', error);
         throw new Error('Failed to fetch authors');

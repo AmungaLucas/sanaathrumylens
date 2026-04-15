@@ -1,8 +1,6 @@
 // src/app/events/[slug]/EventClientPage.jsx
 "use client";
 import { useState, useEffect, useCallback } from 'react';
-import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
@@ -27,7 +25,20 @@ function parseEventDates(event) {
     }
 
     if (event.registration?.deadline) {
-        parsed.registration.deadline = new Date(event.registration.deadline);
+        parsed.registration = {
+            ...event.registration,
+            deadline: new Date(event.registration.deadline),
+        };
+    }
+
+    // Parse location if it's a JSON string
+    if (typeof event.location === 'string') {
+        try { parsed.location = JSON.parse(event.location); } catch { parsed.location = null; }
+    }
+
+    // Parse tags if it's a JSON string
+    if (typeof event.tags === 'string') {
+        try { parsed.tags = JSON.parse(event.tags); } catch { parsed.tags = []; }
     }
 
     return parsed;
@@ -50,26 +61,17 @@ export default function EventClientPage({
         if (!category) return;
 
         try {
-            const q = query(
-                collection(db, 'events'),
-                where('status', '==', 'published'),
-                where('isDeleted', '==', false),
-                where('category', '==', category),
-                orderBy('startDate', 'asc'),
-                limit(4)
-            );
+            const res = await fetch(`/api/events?upcoming=false&limit=100`);
+            const json = await res.json();
 
-            const snapshot = await getDocs(q);
+            if (!json.success) return;
 
-            const events = snapshot.docs
-                .map(doc => {
-                    const data = doc.data();
-                    return {
-                        id: doc.id,
-                        ...data,
-                        startDate: data.startDate?.toDate(),
-                    };
-                })
+            const events = (json.data.events || [])
+                .map((e) => ({
+                    ...e,
+                    startDate: e.startDate ? new Date(e.startDate) : null,
+                    location: typeof e.location === 'string' ? (() => { try { return JSON.parse(e.location); } catch { return null; } })() : e.location,
+                }))
                 .filter(e => e.id !== event?.id)
                 .slice(0, 3);
 
@@ -86,49 +88,16 @@ export default function EventClientPage({
             setLoading(true);
             setError(null);
 
-            // Import Firestore functions dynamically
-            const { collection, query, where, getDocs, doc, getDoc, limit } = await import('firebase/firestore');
+            const res = await fetch(`/api/events/${slug}`);
+            const json = await res.json();
 
-            let eventDoc;
-            let eventId = slug;
-
-            if (slug.length !== 20) {
-                const eventsQuery = query(
-                    collection(db, 'events'),
-                    where('slug', '==', slug),
-                    where('status', '==', 'published'),
-                    where('isDeleted', '==', false),
-                    limit(1)
-                );
-                const snapshot = await getDocs(eventsQuery);
-                if (!snapshot.empty) {
-                    eventDoc = snapshot.docs[0];
-                    eventId = eventDoc.id;
-                }
-            } else {
-                eventDoc = await getDoc(doc(db, 'events', slug));
-            }
-
-            if (!eventDoc || !eventDoc.exists()) {
+            if (!json.success) {
                 throw new Error('Event not found');
             }
 
-            const eventData = eventDoc.data();
-            const eventWithData = {
-                id: eventId,
-                ...eventData,
-                startDate: eventData.startDate?.toDate(),
-                endDate: eventData.endDate?.toDate(),
-                registration: {
-                    ...eventData.registration,
-                    deadline: eventData.registration?.deadline?.toDate(),
-                },
-                stats: eventData.stats || {},
-            };
-
-            setEvent(eventWithData);
-            await fetchSimilarEvents(eventData.category);
-
+            const parsed = parseEventDates(json.data);
+            setEvent(parsed);
+            await fetchSimilarEvents(parsed?.category);
         } catch (err) {
             console.error('Error fetching event:', err);
             setError('Event not found or failed to load');

@@ -5,7 +5,6 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
-import { getUserAvatar, getUserDisplayName } from "@/utils/userUtils";
 
 export default function Header() {
     const pathname = usePathname();
@@ -22,6 +21,19 @@ export default function Header() {
         { href: "/events", label: "Events" },
         { href: "/contacts", label: "Contacts" },
     ];
+
+    // Local helpers for display name and avatar (no external Firebase utils)
+    const getDisplayName = () =>
+        user?.displayName || user?.email?.split('@')[0] || 'User';
+
+    const getAvatarColor = () => {
+        const name = getDisplayName();
+        const colors = ['#f97316', '#3b82f6', '#10b981', '#8b5cf6', '#ec4899', '#f59e0b'];
+        return colors[name.charCodeAt(0) % colors.length];
+    };
+
+    const getInitials = () =>
+        getDisplayName().charAt(0).toUpperCase();
 
     useEffect(() => {
         const handleClickOutside = (e) => {
@@ -65,15 +77,14 @@ export default function Header() {
                     <Link href="/" className="flex items-center gap-3">
                         <div className="w-10 h-10 relative">
                             <Image
-                                src="/logo.png"            // Image path
+                                src="/logo.png"
                                 alt="Logo"
-                                fill                        // Fills parent div
-                                className="object-contain"  // Keep aspect ratio
+                                fill
+                                className="object-contain"
                                 priority={true}
-                                fetchPriority="high"  // Add this
-                                unoptimized                 // Keep if you don't want Next.js optimization
+                                fetchPriority="high"
+                                unoptimized
                             />
-
                         </div>
                         <span className="font-semibold text-gray-800 text-lg">Sanaathrumylens</span>
                     </Link>
@@ -108,11 +119,11 @@ export default function Header() {
                                 >
                                     {user && (
                                         <>
-                                            {getUserAvatar(user).type === "image" ? (
+                                            {user?.avatar ? (
                                                 <div className="w-8 h-8 rounded-full overflow-hidden">
                                                     <Image
-                                                        src={getUserAvatar(user).url}
-                                                        alt={getUserDisplayName(user)}
+                                                        src={user.avatar}
+                                                        alt={getDisplayName()}
                                                         width={32}
                                                         height={32}
                                                         className="object-cover"
@@ -122,13 +133,13 @@ export default function Header() {
                                             ) : (
                                                 <div
                                                     className="w-8 h-8 rounded-full flex items-center justify-center text-xs text-white font-semibold"
-                                                    style={{ backgroundColor: getUserAvatar(user).backgroundColor }}
+                                                    style={{ backgroundColor: getAvatarColor() }}
                                                 >
-                                                    {getUserAvatar(user).initials}
+                                                    {getInitials()}
                                                 </div>
                                             )}
                                             <span className="max-w-25 truncate font-medium text-gray-700">
-                                                {getUserDisplayName(user)}
+                                                {getDisplayName()}
                                             </span>
                                         </>
                                     )}
@@ -228,11 +239,11 @@ export default function Header() {
                                 {!loading && isAuthenticated() && user && (
                                     <div className="space-y-1">
                                         <div className="flex items-center gap-3 px-4 py-3">
-                                            {getUserAvatar(user).type === "image" ? (
+                                            {user?.avatar ? (
                                                 <div className="w-10 h-10 rounded-full overflow-hidden">
                                                     <Image
-                                                        src={getUserAvatar(user).url}
-                                                        alt={getUserDisplayName(user)}
+                                                        src={user.avatar}
+                                                        alt={getDisplayName()}
                                                         width={40}
                                                         height={40}
                                                         className="object-cover"
@@ -242,13 +253,13 @@ export default function Header() {
                                             ) : (
                                                 <div
                                                     className="w-10 h-10 rounded-full flex items-center justify-center text-sm text-white font-semibold"
-                                                    style={{ backgroundColor: getUserAvatar(user).backgroundColor }}
+                                                    style={{ backgroundColor: getAvatarColor() }}
                                                 >
-                                                    {getUserAvatar(user).initials}
+                                                    {getInitials()}
                                                 </div>
                                             )}
                                             <div>
-                                                <p className="font-medium text-gray-800">{getUserDisplayName(user)}</p>
+                                                <p className="font-medium text-gray-800">{getDisplayName()}</p>
                                             </div>
                                         </div>
 
