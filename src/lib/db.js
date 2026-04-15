@@ -44,10 +44,16 @@ export async function initDatabase() {
       waitForConnections: true,
       connectionLimit: 10,
       queueLimit: 0,
+      connectTimeout: 10000,
     });
 
-    // Test connection
-    const conn = await pool.getConnection();
+    // Test connection with timeout
+    const conn = await Promise.race([
+      pool.getConnection(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('MySQL connection timed out (10s)')), 10000)
+      ),
+    ]);
     await conn.ping();
     conn.release();
 

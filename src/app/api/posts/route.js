@@ -1,7 +1,15 @@
 // src/app/api/posts/route.js
 // GET: List published posts with filtering, sorting, pagination
-import { query } from '@/lib/db';
+import { query, initDatabase } from '@/lib/db';
 import { buildPostQuery, buildPostCountQuery, formatPost, successResponse, errorResponse } from '@/lib/apiHelper';
+
+let dbReady = false;
+async function ensureDb() {
+  if (!dbReady) {
+    await initDatabase();
+    dbReady = true;
+  }
+}
 
 const BASE_SELECT = `
   SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar, a.bio as author_bio
@@ -11,6 +19,8 @@ const BASE_SELECT = `
 
 export async function GET(request) {
   try {
+    await ensureDb();
+
     const { searchParams } = new URL(request.url);
     const params = {
       limit: searchParams.get('limit') || '',

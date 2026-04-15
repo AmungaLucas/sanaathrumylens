@@ -1,10 +1,18 @@
 import { generateBlogMetadata } from "@/app/seo/meta";
 import BlogPostClient from "./BlogPostClient";
-import { query } from "@/lib/db";
+import { query, initDatabase } from "@/lib/db";
 import { formatPost } from "@/lib/apiHelper";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import Link from "next/link";
 import { FileQuestion, Home } from "lucide-react";
+
+let dbReady = false;
+async function ensureDb() {
+  if (!dbReady) {
+    await initDatabase();
+    dbReady = true;
+  }
+}
 
 async function fetchPostBySlug(slug) {
     const result = await query(
@@ -13,8 +21,8 @@ async function fetchPostBySlug(slug) {
          WHERE p.slug = ? AND p.status = 'published' AND p.is_deleted = 0 LIMIT 1`,
         [slug]
     );
-    if (!result.rows.length) return null;
-    return formatPost(result.rows[0]);
+    if (!Array.isArray(result) || !result.length) return null;
+    return formatPost(result[0]);
 }
 
 async function fetchRecentStories(limit = 4) {
@@ -25,14 +33,14 @@ async function fetchRecentStories(limit = 4) {
          ORDER BY p.published_at DESC LIMIT ?`,
         [limit]
     );
-    return (result.rows || []).map(formatPost);
+    return (Array.isArray(result) ? result : []).map(formatPost);
 }
 
 async function fetchCategories() {
     const result = await query(
         "SELECT * FROM categories WHERE is_active = 1 ORDER BY name"
     );
-    return result.rows || [];
+    return Array.isArray(result) ? result : [];
 }
 
 async function fetchArticlesByAuthor(authorId, excludePostId, limit = 4) {
@@ -43,7 +51,7 @@ async function fetchArticlesByAuthor(authorId, excludePostId, limit = 4) {
          ORDER BY p.published_at DESC LIMIT ?`,
         [authorId, excludePostId, limit]
     );
-    return (result.rows || []).map(formatPost);
+    return (Array.isArray(result) ? result : []).map(formatPost);
 }
 
 async function fetchRelatedPosts(categoryIds, excludePostId, limit = 4) {
@@ -56,7 +64,7 @@ async function fetchRelatedPosts(categoryIds, excludePostId, limit = 4) {
          ORDER BY p.published_at DESC LIMIT 10`,
         [excludePostId]
     );
-    const posts = (result.rows || []).map(formatPost);
+    const posts = (Array.isArray(result) ? result : []).map(formatPost);
     // Filter by category overlap
     return posts
         .filter(p => {
@@ -68,6 +76,7 @@ async function fetchRelatedPosts(categoryIds, excludePostId, limit = 4) {
 
 export async function generateMetadata({ params }) {
     const { slug } = await params;
+    await ensureDb();
     const post = await fetchPostBySlug(slug);
 
     if (!post) {
@@ -89,6 +98,7 @@ export async function generateMetadata({ params }) {
 
 export default async function Page({ params }) {
     const { slug } = await params;
+    await ensureDb();
 
     const post = await fetchPostBySlug(slug);
 
