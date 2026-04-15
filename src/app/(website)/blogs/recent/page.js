@@ -1,72 +1,91 @@
 // src/app/(website)/blogs/recent/page.js
-"use client";
-import { useState, useEffect } from 'react';
+export const revalidate = 300;
+
 import Link from 'next/link';
 import Image from 'next/image';
 import { Clock, ArrowRight, Eye, Heart, Calendar } from 'lucide-react';
+import { query, initDatabase } from '@/lib/db';
+import { formatPost } from '@/lib/apiHelper';
+import { SITE_NAME, DEFAULT_OG_IMAGE, TWITTER_HANDLE, SITE_URL } from '@/app/seo/constants';
 
-export default function RecentArticlesPage() {
-    const [recentPosts, setRecentPosts] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
+export const metadata = {
+    title: `Recent Articles - ${SITE_NAME}`,
+    description: `Stay up to date with the latest stories from our creative community on ${SITE_NAME}.`,
+    alternates: {
+        canonical: `${SITE_URL}/blogs/recent`,
+    },
+    openGraph: {
+        type: 'website',
+        title: `Recent Articles - ${SITE_NAME}`,
+        description: `Stay up to date with the latest stories from our creative community on ${SITE_NAME}.`,
+        url: `${SITE_URL}/blogs/recent`,
+        siteName: SITE_NAME,
+        images: [
+            {
+                url: DEFAULT_OG_IMAGE,
+                width: 1200,
+                height: 630,
+                alt: `Recent Articles - ${SITE_NAME}`,
+            },
+        ],
+    },
+    twitter: {
+        card: 'summary_large_image',
+        title: `Recent Articles - ${SITE_NAME}`,
+        description: `Stay up to date with the latest stories from our creative community on ${SITE_NAME}.`,
+        images: [DEFAULT_OG_IMAGE],
+        creator: TWITTER_HANDLE,
+    },
+    robots: {
+        index: true,
+        follow: true,
+        googleBot: {
+            index: true,
+            follow: true,
+            'max-video-preview': -1,
+            'max-image-preview': 'large',
+            'max-snippet': -1,
+        },
+    },
+};
 
-    useEffect(() => {
-        fetchRecentArticles();
-    }, []);
+function formatTimeAgo(date) {
+    if (!date) return '';
+    const diff = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+    return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
 
-    const fetchRecentArticles = async () => {
-        try {
-            setLoading(true);
-
-            const res = await fetch('/api/posts?limit=20&sort=publishedAt&sortDir=desc');
-            const data = await res.json();
-
-            if (!data.success) {
-                throw new Error(data.error || 'Failed to load recent articles');
-            }
-
-            setRecentPosts(data.data?.posts || []);
-        } catch (err) {
-            console.error('Error fetching recent articles:', err);
-            setError('Failed to load recent articles');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const formatDate = (date) => {
-        if (!date) return '';
-        return new Date(date).toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric'
-        });
-    };
-
-    const formatTimeAgo = (date) => {
-        if (!date) return '';
-        const dateObj = new Date(date);
-        const now = new Date();
-        const diffInSeconds = Math.floor((now - dateObj) / 1000);
-
-        if (diffInSeconds < 60) return 'just now';
-        if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
-        if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
-        if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}d ago`;
-
-        return formatDate(date);
-    };
-
-    if (loading && recentPosts.length === 0) {
+export default async function RecentArticlesPage() {
+    const dbOk = await initDatabase();
+    if (!dbOk) {
         return (
             <div className="min-h-screen bg-[#f5f1e8] py-12">
                 <div className="max-w-7xl mx-auto px-6">
                     <div className="text-center">
-                        <div className="w-16 h-16 border-4 border-gray-300 border-t-orange-500 rounded-full animate-spin mx-auto mb-4"></div>
-                        <p className="text-gray-600">Loading recent articles...</p>
+                        <p className="text-gray-600">Service temporarily unavailable. Please try again later.</p>
                     </div>
                 </div>
             </div>
         );
+    }
+
+    let recentPosts = [];
+    try {
+        const rows = await query(
+            `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar, a.bio as author_bio
+             FROM posts p
+             LEFT JOIN authors a ON p.author_id = a.id
+             WHERE p.status = 'published' AND p.is_deleted = 0
+             ORDER BY p.published_at DESC LIMIT 20`
+        );
+        recentPosts = (Array.isArray(rows) ? rows : []).map(formatPost);
+    } catch (err) {
+        console.error('Error fetching recent articles:', err);
+        recentPosts = [];
     }
 
     return (
@@ -140,7 +159,7 @@ export default function RecentArticlesPage() {
                     ))}
                 </div>
 
-                {recentPosts.length === 0 && !loading && (
+                {recentPosts.length === 0 && (
                     <div className="text-center py-16 bg-white rounded-lg shadow">
                         <div className="text-gray-400 text-5xl mb-4">📝</div>
                         <h3 className="text-xl font-bold mb-2">No articles yet</h3>

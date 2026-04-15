@@ -1,50 +1,53 @@
 // src/app/(website)/blogs/popular/page.js
-"use client";
-import { useState, useEffect } from 'react';
+export const revalidate = 3600;
+
 import Link from 'next/link';
 import Image from 'next/image';
 import { Eye, ArrowRight, Flame, Heart } from 'lucide-react';
+import { query, initDatabase } from '@/lib/db';
+import { formatPost } from '@/lib/apiHelper';
+import { generatePopularArticlesMetadata } from '@/app/seo/meta';
 
-export default function PopularArticlesPage() {
-    const [popularPosts, setPopularPosts] = useState([]);
-    const [trendingPosts, setTrendingPosts] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
+export const metadata = generatePopularArticlesMetadata();
 
-    useEffect(() => {
-        fetchPopularArticles();
-    }, []);
+export default async function PopularArticlesPage() {
+    const dbOk = await initDatabase();
+    if (!dbOk) {
+        return (
+            <div className="min-h-screen bg-[#f5f1e8] py-12">
+                <div className="max-w-7xl mx-auto px-6">
+                    <div className="text-center">
+                        <p className="text-gray-600">Service temporarily unavailable. Please try again later.</p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
-    const fetchPopularArticles = async () => {
-        try {
-            setLoading(true);
+    let posts = [];
+    try {
+        const rows = await query(
+            `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar, a.bio as author_bio
+             FROM posts p
+             LEFT JOIN authors a ON p.author_id = a.id
+             WHERE p.status = 'published' AND p.is_deleted = 0
+             ORDER BY p.stats_views DESC LIMIT 20`
+        );
+        posts = (Array.isArray(rows) ? rows : []).map(formatPost);
+    } catch (err) {
+        console.error('Error fetching popular articles:', err);
+        posts = [];
+    }
 
-            const res = await fetch('/api/posts?limit=20&sort=stats_views&sortDir=desc');
-            const data = await res.json();
+    // Sort by combined popularity score (views + likes)
+    const sortedPosts = [...posts].sort((a, b) => {
+        const scoreA = (a.stats?.views || 0) + (a.stats?.likes || 0);
+        const scoreB = (b.stats?.views || 0) + (b.stats?.likes || 0);
+        return scoreB - scoreA;
+    });
 
-            if (!data.success) {
-                throw new Error(data.error || 'Failed to load popular articles');
-            }
-
-            const posts = data.data?.posts || [];
-
-            // Sort by combined popularity score (views + likes)
-            const sortedPosts = [...posts].sort((a, b) => {
-                const scoreA = (a.stats?.views || 0) + (a.stats?.likes || 0);
-                const scoreB = (b.stats?.views || 0) + (b.stats?.likes || 0);
-                return scoreB - scoreA;
-            });
-
-            setPopularPosts(sortedPosts.slice(0, 6));
-            setTrendingPosts(sortedPosts.slice(0, 10));
-
-        } catch (err) {
-            console.error('Error fetching popular articles:', err);
-            setError('Failed to load popular articles');
-        } finally {
-            setLoading(false);
-        }
-    };
+    const trendingPosts = sortedPosts.slice(0, 10);
+    const popularPosts = sortedPosts.slice(0, 6);
 
     const formatDate = (date) => {
         if (!date) return '';
@@ -59,19 +62,6 @@ export default function PopularArticlesPage() {
         if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
         return num;
     };
-
-    if (loading && popularPosts.length === 0) {
-        return (
-            <div className="min-h-screen bg-[#f5f1e8] py-12">
-                <div className="max-w-7xl mx-auto px-6">
-                    <div className="text-center">
-                        <div className="w-16 h-16 border-4 border-gray-300 border-t-orange-500 rounded-full animate-spin mx-auto mb-4"></div>
-                        <p className="text-gray-600">Loading popular articles...</p>
-                    </div>
-                </div>
-            </div>
-        );
-    }
 
     return (
         <div className="min-h-screen bg-[#f5f1e8]">
