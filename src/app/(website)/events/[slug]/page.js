@@ -6,15 +6,26 @@ import { formatEvent } from '@/lib/apiHelper';
 import EventClientPage from './EventClientPage';
 
 let dbReady = false;
+let dbAvailable = false;
 async function ensureDb() {
     if (!dbReady) {
-        await initDatabase();
+        dbAvailable = await initDatabase();
         dbReady = true;
     }
+    return dbAvailable;
 }
 
 export async function generateMetadata({ params }) {
     const { slug } = await params;
+
+    const dbOk = await ensureDb();
+    if (!dbOk) {
+        return {
+            title: SITE_NAME,
+            description: 'Service temporarily unavailable.',
+        };
+    }
+
     const event = await fetchEventBySlug(slug);
 
     if (!event) {
@@ -30,7 +41,8 @@ export async function generateMetadata({ params }) {
 // Fetch event by slug from DB
 async function fetchEventBySlug(slug) {
     try {
-        await ensureDb();
+        const dbOk = await ensureDb();
+        if (!dbOk) return null;
         const rows = await query(
             `SELECT * FROM events WHERE slug = ? AND status = 'published' AND is_deleted = 0 LIMIT 1`,
             [slug]
@@ -46,6 +58,17 @@ async function fetchEventBySlug(slug) {
 
 export default async function EventPage({ params }) {
     const { slug } = await params;
+
+    const dbOk = await ensureDb();
+    if (!dbOk) {
+        return (
+            <div className="min-h-screen flex items-center justify-center p-8 bg-[#f5f1e8]">
+                <div className="text-center">
+                    <p className="text-gray-500">Service temporarily unavailable. Please try again later.</p>
+                </div>
+            </div>
+        );
+    }
 
     // Fetch full event data for initial render
     const initialEvent = await fetchEventBySlug(slug);

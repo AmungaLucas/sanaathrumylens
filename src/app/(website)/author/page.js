@@ -4,16 +4,19 @@ import { query, initDatabase } from '@/lib/db';
 export const revalidate = 3600; // Revalidate every hour
 
 let dbReady = false;
+let dbAvailable = false;
 async function ensureDb() {
     if (!dbReady) {
-        await initDatabase();
+        dbAvailable = await initDatabase();
         dbReady = true;
     }
+    return dbAvailable;
 }
 
 async function getAuthors() {
     try {
-        await ensureDb();
+        const dbOk = await ensureDb();
+        if (!dbOk) return [];
         const rows = await query('SELECT id, slug, name, bio, avatar, created_at, updated_at FROM authors ORDER BY name ASC');
         return Array.isArray(rows) ? rows.map((row) => ({
             id: row.id,
@@ -31,6 +34,17 @@ async function getAuthors() {
 }
 
 export default async function AuthorsIndex() {
+    const dbOk = await ensureDb();
+    if (!dbOk) {
+        return (
+            <div className="min-h-screen flex items-center justify-center p-8 bg-[#f5f1e8]">
+                <div className="text-center">
+                    <p className="text-gray-500">Service temporarily unavailable. Please try again later.</p>
+                </div>
+            </div>
+        );
+    }
+
     let authors;
 
     try {

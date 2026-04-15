@@ -4,11 +4,13 @@ import { generateCanonicalUrl } from '@/app/seo/meta';
 import AuthorProfileClient from './AuthorProfileClient';
 
 let dbReady = false;
+let dbAvailable = false;
 async function ensureDb() {
     if (!dbReady) {
-        await initDatabase();
+        dbAvailable = await initDatabase();
         dbReady = true;
     }
+    return dbAvailable;
 }
 
 // SEO: generateMetadata for author profile (Server Component)
@@ -19,8 +21,15 @@ export async function generateMetadata({ params }) {
     let authorBio = '';
     let authorImage = DEFAULT_OG_IMAGE;
 
+    const dbOk = await ensureDb();
+    if (!dbOk) {
+        return {
+            title: SITE_NAME,
+            description: 'Service temporarily unavailable.',
+        };
+    }
+
     try {
-        await ensureDb();
         const rows = await query('SELECT * FROM authors WHERE slug = ? LIMIT 1', [slug]);
 
         if (Array.isArray(rows) && rows.length > 0) {
@@ -75,6 +84,17 @@ export async function generateMetadata({ params }) {
 
 export default async function AuthorPage({ params }) {
     const { slug } = await params;
+
+    const dbOk = await ensureDb();
+    if (!dbOk) {
+        return (
+            <div className="min-h-screen flex items-center justify-center p-8 bg-[#f5f1e8]">
+                <div className="text-center">
+                    <p className="text-gray-500">Service temporarily unavailable. Please try again later.</p>
+                </div>
+            </div>
+        );
+    }
 
     return <AuthorProfileClient slug={slug} />;
 }

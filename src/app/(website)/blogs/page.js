@@ -5,11 +5,13 @@ import BlogClient from './BlogClient';
 import Link from 'next/link';
 
 let dbReady = false;
+let dbAvailable = false;
 async function ensureDb() {
     if (!dbReady) {
-        await initDatabase();
+        dbAvailable = await initDatabase();
         dbReady = true;
     }
+    return dbAvailable;
 }
 
 export async function generateMetadata({ searchParams }) {

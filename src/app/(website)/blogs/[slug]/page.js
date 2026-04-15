@@ -7,11 +7,13 @@ import Link from "next/link";
 import { FileQuestion, Home } from "lucide-react";
 
 let dbReady = false;
+let dbAvailable = false;
 async function ensureDb() {
   if (!dbReady) {
-    await initDatabase();
+    dbAvailable = await initDatabase();
     dbReady = true;
   }
+  return dbAvailable;
 }
 
 async function fetchPostBySlug(slug) {
@@ -76,7 +78,10 @@ async function fetchRelatedPosts(categoryIds, excludePostId, limit = 4) {
 
 export async function generateMetadata({ params }) {
     const { slug } = await params;
-    await ensureDb();
+    const dbOk = await ensureDb();
+    if (!dbOk) {
+        return { title: "Sanaathrumylens", description: "High-quality articles on architecture, design, and technology." };
+    }
     const post = await fetchPostBySlug(slug);
 
     if (!post) {
@@ -98,7 +103,21 @@ export async function generateMetadata({ params }) {
 
 export default async function Page({ params }) {
     const { slug } = await params;
-    await ensureDb();
+    const dbOk = await ensureDb();
+
+    if (!dbOk) {
+        return (
+            <div className="min-h-screen flex items-center justify-center p-8 bg-base-bg">
+                <div className="text-center max-w-md p-10 bg-surface rounded-2xl border border-base-border shadow-xl">
+                    <h1 className="text-3xl font-bold mb-4 text-base-fg">Service Unavailable</h1>
+                    <p className="text-base-muted mb-8">The site is currently unavailable. Please try again later.</p>
+                    <Link href="/" className="inline-flex items-center gap-2 px-8 py-3 bg-primary text-surface rounded-full font-bold uppercase tracking-widest text-sm hover:bg-secondary transition-all shadow-md">
+                        <Home size={18} /> Back to Home
+                    </Link>
+                </div>
+            </div>
+        );
+    }
 
     const post = await fetchPostBySlug(slug);
 

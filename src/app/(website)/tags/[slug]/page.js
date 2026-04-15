@@ -5,11 +5,13 @@ import Link from 'next/link';
 import Image from 'next/image';
 
 let dbReady = false;
+let dbAvailable = false;
 async function ensureDb() {
     if (!dbReady) {
-        await initDatabase();
+        dbAvailable = await initDatabase();
         dbReady = true;
     }
+    return dbAvailable;
 }
 
 export async function generateMetadata({ params }) {
@@ -21,11 +23,21 @@ export default async function TagPage({ params }) {
     const { slug } = await params;
     const decodedSlug = decodeURIComponent(slug);
 
+    const dbOk = await ensureDb();
+    if (!dbOk) {
+        return (
+            <div className="min-h-screen flex items-center justify-center p-8 bg-[#f5f1e8]">
+                <div className="text-center">
+                    <p className="text-gray-500">Service temporarily unavailable. Please try again later.</p>
+                </div>
+            </div>
+        );
+    }
+
     let articles = [];
     let error = null;
 
     try {
-        await ensureDb();
 
         const rows = await query(
             `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar
