@@ -73,7 +73,9 @@ const CommentsSection = ({ postId }) => {
                 throw new Error(data.error || 'Failed to load comments');
             }
 
-            const fetchedComments = (data.data || []).map(c => ({
+            // API returns { success: true, data: { comments: [...] } }
+            const commentsData = data.data?.comments || data.data || [];
+            const fetchedComments = (Array.isArray(commentsData) ? commentsData : []).map(c => ({
                 id: c.id,
                 content: c.content,
                 userId: c.userId,

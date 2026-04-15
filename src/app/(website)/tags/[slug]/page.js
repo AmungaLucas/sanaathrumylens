@@ -4,14 +4,8 @@ import { generateTagMetadata } from '@/app/seo/meta';
 import Link from 'next/link';
 import Image from 'next/image';
 
-let dbReady = false;
-let dbAvailable = false;
 async function ensureDb() {
-    if (!dbReady) {
-        dbAvailable = await initDatabase();
-        dbReady = true;
-    }
-    return dbAvailable;
+    return await initDatabase();
 }
 
 export async function generateMetadata({ params }) {

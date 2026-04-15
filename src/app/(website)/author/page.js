@@ -3,14 +3,8 @@ import { query, initDatabase } from '@/lib/db';
 
 export const revalidate = 3600; // Revalidate every hour
 
-let dbReady = false;
-let dbAvailable = false;
 async function ensureDb() {
-    if (!dbReady) {
-        dbAvailable = await initDatabase();
-        dbReady = true;
-    }
-    return dbAvailable;
+    return await initDatabase();
 }
 
 async function getAuthors() {

@@ -3,14 +3,8 @@ import { SITE_NAME, SITE_URL, DEFAULT_OG_IMAGE } from '@/app/seo/constants';
 import { generateCanonicalUrl } from '@/app/seo/meta';
 import AuthorProfileClient from './AuthorProfileClient';
 
-let dbReady = false;
-let dbAvailable = false;
 async function ensureDb() {
-    if (!dbReady) {
-        dbAvailable = await initDatabase();
-        dbReady = true;
-    }
-    return dbAvailable;
+    return await initDatabase();
 }
 
 // SEO: generateMetadata for author profile (Server Component)

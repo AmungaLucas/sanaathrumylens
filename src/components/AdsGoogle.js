@@ -3,6 +3,12 @@
 import { useEffect } from "react";
 
 const AdsGoogle = ({ slot, style = {}, className = "", format = "auto", responsive = "true" }) => {
+    // Don't render if AdSense is not configured
+    const adClientId = process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID;
+    if (!adClientId) {
+        return null;
+    }
+
     useEffect(() => {
         if (window) {
             try {

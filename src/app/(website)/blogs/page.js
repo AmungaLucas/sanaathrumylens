@@ -4,14 +4,8 @@ import { formatPost } from '@/lib/apiHelper';
 import BlogClient from './BlogClient';
 import Link from 'next/link';
 
-let dbReady = false;
-let dbAvailable = false;
 async function ensureDb() {
-    if (!dbReady) {
-        dbAvailable = await initDatabase();
-        dbReady = true;
-    }
-    return dbAvailable;
+    return await initDatabase();
 }
 
 export async function generateMetadata({ searchParams }) {

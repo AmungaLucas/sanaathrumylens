@@ -5,14 +5,8 @@ import { query, initDatabase } from '@/lib/db';
 import { formatEvent } from '@/lib/apiHelper';
 import EventClientPage from './EventClientPage';
 
-let dbReady = false;
-let dbAvailable = false;
 async function ensureDb() {
-    if (!dbReady) {
-        dbAvailable = await initDatabase();
-        dbReady = true;
-    }
-    return dbAvailable;
+    return await initDatabase();
 }
 
 export async function generateMetadata({ params }) {

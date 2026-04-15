@@ -309,11 +309,12 @@ export default function HomeClientPage({ siteUrl, siteName }) {
     };
 
     // Calculate page numbers to display
+    const maxVisiblePages = typeof window !== 'undefined' && window.innerWidth < 640 ? 3 : 5;
     const getPageNumbers = () => {
-        const maxVisiblePages = window.innerWidth < 640 ? 3 : 5;
+        const _maxVisible = typeof window !== 'undefined' && window.innerWidth < 640 ? 3 : 5;
         const pages = [];
 
-        if (totalPages <= maxVisiblePages) {
+        if (totalPages <= _maxVisible) {
             for (let i = 1; i <= totalPages; i++) {
                 pages.push(i);
             }
