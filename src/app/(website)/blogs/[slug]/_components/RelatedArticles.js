@@ -65,9 +65,6 @@ export default function RelatedArticles({ articles, categories = [] }) {
                                     textSize="text-xs"
                                 />
                             </div>
-                            <span className="text-blue-600 text-xs hover:underline">
-                                Read More...
-                            </span>
                         </div>
                     </Link>
                 ))}

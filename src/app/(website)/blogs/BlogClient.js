@@ -542,14 +542,6 @@ export default function BlogClient({
                                                             {post.stats?.comments || 0}
                                                         </span>
                                                     </div>
-
-                                                    <Link
-                                                        href={`/blogs/${post.slug || post.id}`}
-                                                        className="text-orange-500 hover:text-orange-600 text-sm font-medium flex items-center gap-1"
-                                                    >
-                                                        Read More
-                                                        <ArrowRight size={14} />
-                                                    </Link>
                                                 </div>
                                             </div>
                                         </div>

@@ -53,12 +53,6 @@ export default function RecentStories({ stories }) {
                                 iconSize={10}
                                 textSize="text-xs"
                             />
-                            <Link
-                                href={`/blogs/${story.slug || story.id}`}
-                                className="text-blue-600 text-xs hover:underline mt-1 inline-block"
-                            >
-                                Read More...
-                            </Link>
                         </div>
                     </div>
                 </div>

@@ -360,10 +360,7 @@ export default function HomeClientPage({ siteUrl, siteName }) {
         setCurrentSlide((prev) => (prev - 1 + heroSlides.length) % heroSlides.length);
     };
 
-    // Handle article click
-    const handleArticleClick = (articleId) => {
-        console.log(`Article ${articleId} clicked`);
-    };
+
 
     // Error state
     if (error && !loading) {
@@ -416,7 +413,11 @@ export default function HomeClientPage({ siteUrl, siteName }) {
                                 ))
                             ) : currentArticles.length > 0 ? (
                                 currentArticles.map((article) => (
-                                    <div key={article.id} className="bg-white rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow group">
+                                    <Link
+                                        key={article.id}
+                                        href={`/blogs/${article.slug || article.id}`}
+                                        className="bg-white rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow group block"
+                                    >
                                         <div className="relative aspect-4/3 overflow-hidden group">
                                             {(article.coverImage || article.featuredImage) ? (
                                                 <Image
@@ -453,13 +454,6 @@ export default function HomeClientPage({ siteUrl, siteName }) {
                                             <p className="text-gray-600 text-xs mb-3 line-clamp-2">
                                                 <span dangerouslySetInnerHTML={{ __html: article.excerpt }} />
                                             </p>
-                                            <Link
-                                                href={`/blogs/${article.slug || article.id}`}
-                                                className="text-blue-600 text-xs hover:underline font-medium inline-flex items-center gap-1"
-                                            >
-                                                Read More
-                                                <ArrowRight size={12} />
-                                            </Link>
                                             <div className="flex items-center justify-between mt-4 pt-4 border-t">
                                                 <div className="flex items-center gap-2 sm:gap-4 text-xs text-gray-500">
                                                     <span className="flex items-center gap-1">
@@ -486,7 +480,7 @@ export default function HomeClientPage({ siteUrl, siteName }) {
                                                 </span>
                                             </div>
                                         </div>
-                                    </div>
+                                    </Link>
                                 ))
                             ) : (
                                 <div className="col-span-full text-center py-12">
@@ -556,8 +550,7 @@ export default function HomeClientPage({ siteUrl, siteName }) {
                                 {popularArticles[0] && (
                                     <Link
                                         href={`/blogs/${popularArticles[0].slug || popularArticles[0].id}`}
-                                        onClick={() => handleArticleClick(popularArticles[0].id)}
-                                        className="relative h-60 md:h-full rounded-lg overflow-hidden group"
+                                        className="relative h-60 md:h-full rounded-lg overflow-hidden group block"
                                     >
                                         {(popularArticles[0].coverImage || popularArticles[0].featuredImage) ? (
                                             <Image
@@ -594,8 +587,7 @@ export default function HomeClientPage({ siteUrl, siteName }) {
                                         <Link
                                             key={article.id}
                                             href={`/blogs/${article.slug || article.id}`}
-                                            onClick={() => handleArticleClick(article.id)}
-                                            className="flex gap-3 flex-1 rounded-lg bg-white overflow-hidden group"
+                                            className="flex gap-3 flex-1 rounded-lg bg-white overflow-hidden group block"
                                         >
                                             {/* Image */}
                                             <div className="relative w-32 h-full shrink-0">
@@ -677,7 +669,6 @@ export default function HomeClientPage({ siteUrl, siteName }) {
                                 <>
                                     <Link
                                         href={`/blogs/${featuredArticle.slug || featuredArticle.id}`}
-                                        onClick={() => handleArticleClick(featuredArticle.id)}
                                         className="block"
                                     >
                                         <div className="relative h-32 md:h-40 bg-linear-to-br from-gray-200 to-gray-400 rounded mb-3 overflow-hidden group">
@@ -695,10 +686,6 @@ export default function HomeClientPage({ siteUrl, siteName }) {
                                         </div>
                                         <h4 className="font-bold text-sm mb-2 hover:text-orange-600 transition-colors">{featuredArticle.title}</h4>
                                         <p className="text-xs text-gray-600 mb-2 line-clamp-2">{featuredArticle.excerpt}</p>
-                                        <div className="text-blue-600 text-xs hover:underline font-medium inline-flex items-center gap-1 mb-4">
-                                            Read More
-                                            <ArrowRight size={12} />
-                                        </div>
                                         <div className="text-xs flex gap-4 text-gray-500">
                                             <p>{featuredArticle.stats?.likes || 0} likes</p>
                                             <p>{featuredArticle.stats?.comments || 0} comments</p>
@@ -741,7 +728,6 @@ export default function HomeClientPage({ siteUrl, siteName }) {
                                         <Link
                                             key={story.id}
                                             href={`/blogs/${story.slug || story.id}`}
-                                            onClick={() => handleArticleClick(story.id)}
                                             className="group flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors"
                                         >
                                             <div className="shrink-0 w-1 h-6 bg-blue-500"></div>
