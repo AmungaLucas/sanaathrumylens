@@ -5,16 +5,21 @@ import { withAuth } from '@/lib/withAuth';
 import { formatPost, successResponse, errorResponse } from '@/lib/apiHelper';
 
 let dbReady = false;
+let dbAvailable = false;
 async function ensureDb() {
   if (!dbReady) {
-    await initDatabase();
+    dbAvailable = await initDatabase();
     dbReady = true;
   }
+  return dbAvailable;
 }
 
 export async function GET(request) {
   try {
-    await ensureDb();
+    const dbOk = await ensureDb();
+    if (!dbOk) {
+      return successResponse({ bookmarks: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0 } });
+    }
 
     // Check authentication
     const { authenticated, user } = await withAuth(request);

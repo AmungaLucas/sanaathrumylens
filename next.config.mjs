@@ -1,8 +1,14 @@
-// next.config.mjs
-
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  serverExternalPackages: ["better-sqlite3"],
+  // No serverExternalPackages needed — mysql2 and jsonwebtoken are pure JS
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '**',
+      },
+    ],
+  },
 };
 
 export default nextConfig;

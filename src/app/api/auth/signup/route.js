@@ -6,16 +6,24 @@ import { generateToken, createSessionCookie } from '@/lib/auth';
 
 // Ensure database is initialized (lazy init for API routes)
 let dbReady = false;
+let dbAvailable = false;
 async function ensureDb() {
   if (!dbReady) {
-    await initDatabase();
+    dbAvailable = await initDatabase();
     dbReady = true;
   }
+  return dbAvailable;
 }
 
 export async function POST(request) {
   try {
-    await ensureDb();
+    const dbOk = await ensureDb();
+    if (!dbOk) {
+      return NextResponse.json(
+        { error: 'Service temporarily unavailable' },
+        { status: 503 }
+      );
+    }
 
     const { email, password, displayName } = await request.json();
 

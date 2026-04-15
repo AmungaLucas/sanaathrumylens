@@ -1,91 +1,88 @@
 // src/lib/db.js
-// Database abstraction layer: MySQL (primary) with SQLite fallback
+// Database abstraction layer: MySQL only (Vercel-compatible)
+// better-sqlite3 removed — native modules don't work in Vercel serverless
 import mysql from 'mysql2/promise';
-import path from 'path';
 
-let dbType = null; // 'mysql' or 'sqlite'
-let pool = null;   // MySQL pool
-let sqliteDb = null; // SQLite connection
+let pool = null;
+let dbReady = false;
+let dbFailed = false;
 
-// Use process.cwd() instead of import.meta.url — more compatible across
-// build environments (Turbopack on Vercel, Webpack, Node, etc.)
-function getSqlitePath() {
-  return path.join(process.cwd(), 'sanaa_local.db');
+/**
+ * Check if database is available
+ */
+export function isDbReady() {
+  return dbReady;
+}
+
+/**
+ * Get the MySQL connection pool
+ */
+export function getDb() {
+  return pool;
 }
 
 /**
  * Get the database type
  */
 export function getDbType() {
-  return dbType;
+  return dbReady ? 'mysql' : null;
 }
 
 /**
- * Get the database connection (MySQL pool or SQLite instance)
- */
-export function getDb() {
-  if (dbType === 'sqlite') return sqliteDb;
-  return pool;
-}
-
-/**
- * Initialize the database connection
- * Tries MySQL first, falls back to SQLite
+ * Initialize the MySQL database connection
+ * Returns true if connected, false if failed (graceful degradation)
  */
 export async function initDatabase() {
-  // Try MySQL first
+  // Already initialized
+  if (dbReady) return true;
+
+  // Already failed — don't retry (serverless: each cold start gets one chance)
+  if (dbFailed) return false;
+
+  // Check required env vars
+  if (!process.env.DB_HOST || !process.env.DB_USER || !process.env.DB_PASSWORD || !process.env.DB_NAME) {
+    console.warn('⚠️  MySQL env vars missing (DB_HOST, DB_USER, DB_PASSWORD, DB_NAME). Running in offline mode.');
+    dbFailed = true;
+    return false;
+  }
+
   try {
     pool = mysql.createPool({
-      host: process.env.DB_HOST || 'vda7300.is.cc',
+      host: process.env.DB_HOST,
       port: parseInt(process.env.DB_PORT || '3306'),
-      user: process.env.DB_USER || 'trustfit_sanaa_db_admin',
-      password: process.env.DB_PASSWORD || 'Amush@100%',
-      database: process.env.DB_NAME || 'trustfit_sanaa_db',
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_NAME,
       waitForConnections: true,
-      connectionLimit: 10,
+      connectionLimit: 5, // Lower for serverless
       queueLimit: 0,
-      connectTimeout: 10000,
+      connectTimeout: 5000, // 5s timeout for serverless
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 10000,
     });
 
     // Test connection with timeout
     const conn = await Promise.race([
       pool.getConnection(),
       new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('MySQL connection timed out (10s)')), 10000)
+        setTimeout(() => reject(new Error('MySQL connection timed out (5s)')), 5000)
       ),
     ]);
     await conn.ping();
     conn.release();
 
-    dbType = 'mysql';
+    dbReady = true;
     console.log('✅ Connected to MySQL database');
 
     // Create MySQL tables if they don't exist
     await createMySQLTables(pool);
     return true;
   } catch (mysqlError) {
-    console.warn('⚠️  MySQL connection failed, falling back to SQLite:', mysqlError.message);
-  }
-
-  // Fallback to SQLite — dynamic import kept fully deferred
-  try {
-    const Database = (await import('better-sqlite3')).default;
-    const SQLITE_DB_PATH = getSqlitePath();
-    sqliteDb = new Database(SQLITE_DB_PATH);
-
-    // Enable WAL mode for better performance
-    sqliteDb.pragma('journal_mode = WAL');
-    sqliteDb.pragma('foreign_keys = ON');
-
-    dbType = 'sqlite';
-    console.log(`✅ Connected to SQLite database at ${SQLITE_DB_PATH}`);
-
-    // Create tables for SQLite
-    createSQLiteTables(sqliteDb);
-    return true;
-  } catch (sqliteError) {
-    console.error('❌ Both MySQL and SQLite connections failed:', sqliteError.message);
-    throw sqliteError;
+    console.warn('⚠️  MySQL connection failed:', mysqlError.message);
+    console.warn('⚠️  Running in offline mode — API routes will return empty data.');
+    pool = null;
+    dbFailed = true;
+    return false;
   }
 }
 
@@ -93,7 +90,7 @@ export async function initDatabase() {
  * Create MySQL tables if they don't exist
  */
 async function createMySQLTables(pool) {
-  console.log('📋 Creating MySQL tables...');
+  console.log('📋 Verifying MySQL tables...');
   const conn = await pool.getConnection();
   try {
     const tables = [
@@ -192,187 +189,25 @@ async function createMySQLTables(pool) {
     for (const sql of tables) {
       await conn.query(sql);
     }
-    console.log('  ✅ MySQL tables created/verified');
+    console.log('  ✅ MySQL tables verified');
   } finally {
     conn.release();
   }
 }
 
 /**
- * Create SQLite tables (SQLite uses different syntax than MySQL)
- */
-function createSQLiteTables(db) {
-  console.log('📋 Creating SQLite tables...');
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS authors (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      slug TEXT NOT NULL UNIQUE,
-      name TEXT NOT NULL,
-      bio TEXT,
-      avatar TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      email TEXT NOT NULL UNIQUE,
-      password_hash TEXT NOT NULL,
-      display_name TEXT,
-      avatar TEXT,
-      bio TEXT,
-      slug TEXT UNIQUE,
-      roles TEXT DEFAULT '["user"]',
-      is_public INTEGER DEFAULT 1,
-      bookmarks_count INTEGER DEFAULT 0,
-      likes_count INTEGER DEFAULT 0,
-      comments_count INTEGER DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      last_login DATETIME
-    );
-
-    CREATE TABLE IF NOT EXISTS categories (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      slug TEXT NOT NULL UNIQUE,
-      description TEXT,
-      is_active INTEGER DEFAULT 1,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS posts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      slug TEXT NOT NULL UNIQUE,
-      title TEXT NOT NULL,
-      excerpt TEXT,
-      content TEXT,
-      cover_image TEXT,
-      featured_image TEXT,
-      author_id INTEGER,
-      author_snapshot TEXT,
-      status TEXT DEFAULT 'draft',
-      is_deleted INTEGER DEFAULT 0,
-      is_featured INTEGER DEFAULT 0,
-      category_ids TEXT,
-      tags TEXT,
-      reading_time INTEGER DEFAULT 5,
-      stats_views INTEGER DEFAULT 0,
-      stats_likes INTEGER DEFAULT 0,
-      stats_comments INTEGER DEFAULT 0,
-      published_at DATETIME,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (author_id) REFERENCES authors(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS events (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      slug TEXT NOT NULL UNIQUE,
-      title TEXT NOT NULL,
-      excerpt TEXT,
-      description TEXT,
-      cover_image TEXT,
-      featured_image TEXT,
-      location TEXT,
-      is_online INTEGER DEFAULT 0,
-      status TEXT DEFAULT 'draft',
-      is_deleted INTEGER DEFAULT 0,
-      start_date DATETIME,
-      end_date DATETIME,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS comments (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      post_id INTEGER NOT NULL,
-      user_id INTEGER,
-      user_name TEXT,
-      user_avatar TEXT,
-      content TEXT NOT NULL,
-      parent_id INTEGER DEFAULT NULL,
-      status TEXT DEFAULT 'visible',
-      likes INTEGER DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      is_edited INTEGER DEFAULT 0,
-      is_deleted INTEGER DEFAULT 0,
-      FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
-      FOREIGN KEY (parent_id) REFERENCES comments(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS comment_likes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      comment_id INTEGER NOT NULL,
-      user_id INTEGER NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(comment_id, user_id),
-      FOREIGN KEY (comment_id) REFERENCES comments(id) ON DELETE CASCADE,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS comment_reports (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      comment_id INTEGER NOT NULL,
-      reporter_id INTEGER NOT NULL,
-      reported_user_id INTEGER,
-      status TEXT DEFAULT 'pending',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(comment_id, reporter_id),
-      FOREIGN KEY (comment_id) REFERENCES comments(id) ON DELETE CASCADE,
-      FOREIGN KEY (reporter_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS post_likes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      post_id INTEGER NOT NULL,
-      user_id INTEGER NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      is_deleted INTEGER DEFAULT 0,
-      UNIQUE(post_id, user_id),
-      FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS bookmarks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      post_id INTEGER NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(user_id, post_id),
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-      FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS subscribers (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      email TEXT NOT NULL UNIQUE,
-      is_active INTEGER DEFAULT 1,
-      subscribed_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
-
-  console.log('  ✅ SQLite tables created/verified');
-}
-
-/**
- * Unified query function that works with both MySQL and SQLite
+ * Execute a query against MySQL
  * Returns [rows] for SELECT, and {insertId, affectedRows} for INSERT/UPDATE/DELETE
- * to match mysql2's execute interface.
+ * Throws if database is not available
  */
 export async function query(sql, params = []) {
-  if (dbType === 'sqlite') {
-    return sqliteQuery(sqliteDb, sql, params);
+  if (!pool) {
+    throw new Error('Database not available');
   }
 
-  // MySQL: use execute
   const [result] = await pool.execute(sql, params);
 
-  // For SELECT queries, mysql2 returns [rows]; wrap for consistency
+  // For SELECT queries, mysql2 returns [rows]
   if (Array.isArray(result)) {
     return result;
   }
@@ -382,66 +217,15 @@ export async function query(sql, params = []) {
 }
 
 /**
- * SQLite query wrapper that mimics mysql2's execute interface
- */
-function sqliteQuery(db, sql, params = []) {
-  // Convert MySQL-style placeholders
-  let sqliteSql = convertMySqlToSQLite(sql);
-
-  const trimmed = sqliteSql.trim().toUpperCase();
-
-  if (trimmed.startsWith('SELECT') || trimmed.startsWith('PRAGMA')) {
-    // SELECT: return [rows] like mysql2 execute
-    const rows = db.prepare(sqliteSql).all(...params);
-    return rows;
-  }
-
-  // INSERT/UPDATE/DELETE: return ResultSetHeader-like object
-  const info = db.prepare(sqliteSql).run(...params);
-  return {
-    insertId: info.lastInsertRowid,
-    affectedRows: info.changes,
-  };
-}
-
-/**
- * Convert MySQL-specific SQL to SQLite-compatible SQL
- */
-function convertMySqlToSQLite(sql) {
-  let result = sql;
-
-  // Remove backtick quoting (SQLite uses double quotes or no quoting)
-  result = result.replace(/`([^`]+)`/g, '$1');
-
-  // Replace TRUE/FALSE with 1/0
-  result = result.replace(/\bTRUE\b/g, '1');
-  result = result.replace(/\bFALSE\b/g, '0');
-
-  // Replace ON UPDATE CURRENT_TIMESTAMP (not supported in SQLite the same way)
-  result = result.replace(/\s+ON\s+UPDATE\s+CURRENT_TIMESTAMP/gi, '');
-
-  // Replace ENUM('draft', 'published', 'archived') with TEXT
-  result = result.replace(/ENUM\([^)]+\)/gi, 'TEXT');
-
-  // Replace AUTO_INCREMENT with AUTOINCREMENT
-  result = result.replace(/AUTO_INCREMENT/gi, 'AUTOINCREMENT');
-
-  // Replace UNSIGNED keyword
-  result = result.replace(/\bUNSIGNED\b/gi, '');
-
-  return result;
-}
-
-/**
  * Close the database connection
  */
 export async function closeDatabase() {
-  if (dbType === 'sqlite' && sqliteDb) {
-    sqliteDb.close();
-    console.log('🔌 SQLite connection closed.');
-  } else if (dbType === 'mysql' && pool) {
+  if (pool) {
     await pool.end();
     console.log('🔌 MySQL connection closed.');
+    pool = null;
+    dbReady = false;
+    dbFailed = false;
   }
 }
 

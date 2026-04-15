@@ -4,16 +4,21 @@ import { query, initDatabase } from '@/lib/db';
 import { formatEvent, successResponse, errorResponse } from '@/lib/apiHelper';
 
 let dbReady = false;
+let dbAvailable = false;
 async function ensureDb() {
   if (!dbReady) {
-    await initDatabase();
+    dbAvailable = await initDatabase();
     dbReady = true;
   }
+  return dbAvailable;
 }
 
 export async function GET(request, { params }) {
   try {
-    await ensureDb();
+    const dbOk = await ensureDb();
+    if (!dbOk) {
+      return errorResponse('Event not found', 404);
+    }
     const { slug } = await params;
 
     if (!slug) {

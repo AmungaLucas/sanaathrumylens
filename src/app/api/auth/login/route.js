@@ -1,21 +1,29 @@
 // src/app/api/auth/login/route.js
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
-import { query, getDbType, initDatabase } from '@/lib/db';
+import { query, initDatabase } from '@/lib/db';
 import { generateToken, createSessionCookie } from '@/lib/auth';
 
 // Ensure database is initialized (lazy init for API routes)
 let dbReady = false;
+let dbAvailable = false;
 async function ensureDb() {
   if (!dbReady) {
-    await initDatabase();
+    dbAvailable = await initDatabase();
     dbReady = true;
   }
+  return dbAvailable;
 }
 
 export async function POST(request) {
   try {
-    await ensureDb();
+    const dbOk = await ensureDb();
+    if (!dbOk) {
+      return NextResponse.json(
+        { error: 'Service temporarily unavailable' },
+        { status: 503 }
+      );
+    }
 
     const { email, password } = await request.json();
 

@@ -6,11 +6,13 @@ import { withAuth } from '@/lib/withAuth';
 import { formatComment, successResponse, errorResponse } from '@/lib/apiHelper';
 
 let dbReady = false;
+let dbAvailable = false;
 async function ensureDb() {
   if (!dbReady) {
-    await initDatabase();
+    dbAvailable = await initDatabase();
     dbReady = true;
   }
+  return dbAvailable;
 }
 
 /**
@@ -29,7 +31,10 @@ function canModify(user, commentUserId) {
 
 export async function PUT(request, { params }) {
   try {
-    await ensureDb();
+    const dbOk = await ensureDb();
+    if (!dbOk) {
+      return errorResponse('Service temporarily unavailable', 503);
+    }
     const { commentId } = await params;
 
     // Check authentication
@@ -93,7 +98,10 @@ export async function PUT(request, { params }) {
 
 export async function DELETE(request, { params }) {
   try {
-    await ensureDb();
+    const dbOk = await ensureDb();
+    if (!dbOk) {
+      return errorResponse('Service temporarily unavailable', 503);
+    }
     const { commentId } = await params;
 
     // Check authentication

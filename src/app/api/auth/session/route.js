@@ -5,16 +5,21 @@ import { getTokenFromCookie, verifyToken } from '@/lib/auth';
 
 // Ensure database is initialized (lazy init for API routes)
 let dbReady = false;
+let dbAvailable = false;
 async function ensureDb() {
   if (!dbReady) {
-    await initDatabase();
+    dbAvailable = await initDatabase();
     dbReady = true;
   }
+  return dbAvailable;
 }
 
 export async function GET(request) {
   try {
-    await ensureDb();
+    const dbOk = await ensureDb();
+    if (!dbOk) {
+      return NextResponse.json({ user: null });
+    }
 
     // Get token from cookie
     const token = getTokenFromCookie(request);

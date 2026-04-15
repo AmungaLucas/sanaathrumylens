@@ -5,16 +5,21 @@ import { withAuth } from '@/lib/withAuth';
 import { successResponse, errorResponse } from '@/lib/apiHelper';
 
 let dbReady = false;
+let dbAvailable = false;
 async function ensureDb() {
   if (!dbReady) {
-    await initDatabase();
+    dbAvailable = await initDatabase();
     dbReady = true;
   }
+  return dbAvailable;
 }
 
 export async function POST(request, { params }) {
   try {
-    await ensureDb();
+    const dbOk = await ensureDb();
+    if (!dbOk) {
+      return errorResponse('Service temporarily unavailable', 503);
+    }
     const { id } = await params;
 
     // Check authentication

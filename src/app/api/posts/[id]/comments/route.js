@@ -5,16 +5,21 @@ import { formatComment, successResponse, errorResponse } from '@/lib/apiHelper';
 import { withAuth } from '@/lib/withAuth';
 
 let dbReady = false;
+let dbAvailable = false;
 async function ensureDb() {
   if (!dbReady) {
-    await initDatabase();
+    dbAvailable = await initDatabase();
     dbReady = true;
   }
+  return dbAvailable;
 }
 
 export async function GET(request, { params }) {
   try {
-    await ensureDb();
+    const dbOk = await ensureDb();
+    if (!dbOk) {
+      return successResponse({ comments: [] });
+    }
     const { id } = await params;
 
     if (!id) {
