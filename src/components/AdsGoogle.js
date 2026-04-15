@@ -2,13 +2,9 @@
 
 import { useEffect } from "react";
 
-const AdsGoogle = ({ slot, style = {}, className = "", format = "auto", responsive = "true" }) => {
-    // Don't render if AdSense is not configured
-    const adClientId = process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID;
-    if (!adClientId) {
-        return null;
-    }
+const AD_CLIENT = "ca-pub-8031704055036556";
 
+const AdsGoogle = ({ slot, style = {}, className = "", format = "auto", responsive = "true" }) => {
     useEffect(() => {
         if (window) {
             try {
@@ -23,7 +19,7 @@ const AdsGoogle = ({ slot, style = {}, className = "", format = "auto", responsi
         <ins
             className={`adsbygoogle ${className}`}
             style={style}
-            data-ad-client={process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID}
+            data-ad-client={AD_CLIENT}
             data-ad-slot={slot}
             data-ad-format={format}
             data-full-width-responsive={responsive}
