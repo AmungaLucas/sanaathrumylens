@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect } from "react";
 
 const AdsGoogle = ({ slot, style = {}, className = "", format = "auto", responsive = "true" }) => {

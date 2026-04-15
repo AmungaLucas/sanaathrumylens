@@ -49,12 +49,14 @@ export default function RootLayout({ children }) {
     return (
         <html lang="en">
             <head>
-                {/* Google AdSense Script */}
-                <script
-                    async
-                    src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID}`}
-                    crossOrigin="anonymous"
-                ></script>
+                {/* Google AdSense Script - only load if env var is set */}
+                {process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID && (
+                    <script
+                        async
+                        src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID}`}
+                        crossOrigin="anonymous"
+                    ></script>
+                )}
             </head>
             <body>
                 <AuthProvider>
