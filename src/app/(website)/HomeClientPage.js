@@ -1,7 +1,7 @@
 // src/app/(website)/HomeClientPage.jsx (Client Component)
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import AdsGoogle from '@/components/AdsGoogle';
 import { ChevronLeft, ChevronRight, MessageCircle, Eye, Heart, Calendar, MapPin, User, ArrowRight, ChevronDown } from 'lucide-react';
 import Image from 'next/image';
@@ -60,7 +60,7 @@ export default function HomeClientPage({ siteUrl, siteName }) {
     const [currentSlide, setCurrentSlide] = useState(0);
     const [email, setEmail] = useState('');
     const [subscribeStatus, setSubscribeStatus] = useState(null);
-    const { isAuthenticated } = useAuth();
+    const { user, isAuthenticated } = useAuth();
     const [likedPosts, setLikedPosts] = useState({});
 
     // Pagination states
@@ -82,6 +82,16 @@ export default function HomeClientPage({ siteUrl, siteName }) {
         unlikePost,
         checkUserLike,
     } = useBlogData();
+
+    // Stable reference for user auth state (avoids infinite loop from function deps)
+    const userId = user?.id || null;
+    // Use refs for values that change identity on every render (prevents infinite useEffect loops)
+    const popularArticlesRef = useRef(popularArticles);
+    const featuredArticleIdRef = useRef(featuredArticle?.id);
+    const checkUserLikeRef = useRef(checkUserLike);
+    useEffect(() => { popularArticlesRef.current = popularArticles; });
+    useEffect(() => { featuredArticleIdRef.current = featuredArticle?.id; });
+    useEffect(() => { checkUserLikeRef.current = checkUserLike; });
 
     // Memoize current articles to prevent unnecessary re-renders
     const indexOfLastArticle = currentPage * postsPerPage;
@@ -161,28 +171,34 @@ export default function HomeClientPage({ siteUrl, siteName }) {
     }, []);
 
     // Fetch liked status for featured and popular articles only when user changes
+    // Only depends on userId (stable) — reads latest values from refs
     useEffect(() => {
         const fetchInitialLikes = async () => {
-            if (!isAuthenticated()) {
-                setLikedPosts({});
+            if (!userId) {
+                // Only reset if not already empty to avoid unnecessary re-renders
+                setLikedPosts(prev => (Object.keys(prev).length > 0 ? {} : prev));
                 return;
             }
 
             try {
+                const _checkUserLike = checkUserLikeRef.current;
+                const _featuredId = featuredArticleIdRef.current;
+                const _popularArticles = popularArticlesRef.current;
+
                 // Fetch for featured article
-                if (featuredArticle?.id) {
-                    const isLiked = await checkUserLike(featuredArticle.id);
+                if (_featuredId) {
+                    const isLiked = await _checkUserLike(_featuredId);
                     setLikedPosts(prev => ({
                         ...prev,
-                        [featuredArticle.id]: isLiked
+                        [_featuredId]: isLiked
                     }));
                 }
 
                 // Fetch for first 3 popular articles
-                const popularToCheck = popularArticles.slice(0, 3);
+                const popularToCheck = _popularArticles.slice(0, 3);
                 for (const article of popularToCheck) {
                     if (article?.id) {
-                        const isLiked = await checkUserLike(article.id);
+                        const isLiked = await _checkUserLike(article.id);
                         setLikedPosts(prev => ({
                             ...prev,
                             [article.id]: isLiked
@@ -195,7 +211,8 @@ export default function HomeClientPage({ siteUrl, siteName }) {
         };
 
         fetchInitialLikes();
-    }, [isAuthenticated, featuredArticle?.id, popularArticles, checkUserLike]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [userId]);
 
     // Hero slides
     const heroSlides = [
