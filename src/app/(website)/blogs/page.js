@@ -3,6 +3,7 @@ import { query, initDatabase } from '@/lib/db';
 import { formatPost } from '@/lib/apiHelper';
 import Link from 'next/link';
 import Image from 'next/image';
+import { Suspense } from 'react';
 import { Calendar, User, Heart, MessageCircle, ArrowRight } from 'lucide-react';
 import BlogSearchFilter from './_components/BlogSearchFilter';
 import NewsletterForm from '../_components/NewsletterForm';
@@ -250,12 +251,18 @@ export default async function BlogPage({ searchParams }) {
                     <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
                         {/* Left Content Area - 3 columns */}
                         <div className="lg:col-span-3 space-y-8">
-                            {/* Search and filter - Client component */}
-                            <BlogSearchFilter
-                                initialSearch={search}
-                                initialCategory={category}
-                                categories={categories}
-                            />
+                            {/* Search and filter - Client component (wrapped in Suspense for useSearchParams) */}
+                            <Suspense fallback={
+                                <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 sm:p-5 animate-pulse">
+                                    <div className="h-10 bg-gray-100 rounded-lg"></div>
+                                </div>
+                            }>
+                                <BlogSearchFilter
+                                    initialSearch={search}
+                                    initialCategory={category}
+                                    categories={categories}
+                                />
+                            </Suspense>
 
                             {/* Info bar */}
                             <div className="flex items-center justify-between p-1">

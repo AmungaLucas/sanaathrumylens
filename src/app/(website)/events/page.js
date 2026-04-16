@@ -3,6 +3,7 @@ import { query, initDatabase } from '@/lib/db';
 import { formatEvent } from '@/lib/apiHelper';
 import Link from 'next/link';
 import Image from 'next/image';
+import { Suspense } from 'react';
 import { Calendar, MapPin, Clock, ArrowRight, Flame } from 'lucide-react';
 import EventsFilterBar from './_components/EventsFilterBar';
 import EventsCalendar from './_components/EventsCalendar';
@@ -210,12 +211,18 @@ export default async function EventsPage({ searchParams }) {
                 <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
                     {/* Main Content - 3 columns */}
                     <div className="lg:col-span-3 space-y-8">
-                        {/* Search and Filter */}
-                        <EventsFilterBar
-                            initialSearch={search}
-                            initialCategory={category}
-                            initialType={type}
-                        />
+                        {/* Search and Filter (wrapped in Suspense for useSearchParams) */}
+                        <Suspense fallback={
+                            <div className="bg-white p-6 rounded-lg shadow animate-pulse">
+                                <div className="h-10 bg-[#F5F1EB] rounded-lg"></div>
+                            </div>
+                        }>
+                            <EventsFilterBar
+                                initialSearch={search}
+                                initialCategory={category}
+                                initialType={type}
+                            />
+                        </Suspense>
 
                         {/* Results count */}
                         <div className="text-sm text-[#6B5E55]">
