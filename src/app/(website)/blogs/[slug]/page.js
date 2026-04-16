@@ -137,12 +137,12 @@ export default async function Page({ params }) {
             );
         }
 
-        // Fetch related data
+        // Fetch related data — each fetch has its own error boundary
         const [recentStories, categories, articlesByAuthor, relatedArticles] = await Promise.all([
-            fetchRecentStories(4).then(stories => stories.filter(s => s.id !== post.id).slice(0, 4)),
-            fetchCategories(),
-            post.author?.id ? fetchArticlesByAuthor(post.author.id, post.id, 4) : Promise.resolve([]),
-            fetchRelatedPosts(post.categoryIds || [], post.id, 4),
+            fetchRecentStories(4).then(stories => stories.filter(s => s.id !== post.id).slice(0, 4)).catch(() => []),
+            fetchCategories().catch(() => []),
+            post.author?.id ? fetchArticlesByAuthor(post.author.id, post.id, 4).catch(() => []) : Promise.resolve([]),
+            fetchRelatedPosts(post.categoryIds || [], post.id, 4).catch(() => []),
         ]);
 
         const initialPostData = {

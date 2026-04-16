@@ -1,12 +1,12 @@
 // src/lib/db.js
 // Database abstraction layer: MySQL only (Vercel-compatible)
-// better-sqlite3 removed — native modules don't work in Vercel serverless
+// Optimized for serverless: fast reconnection, minimal overhead, stale connection recovery
 import mysql from 'mysql2/promise';
 
 let pool = null;
 let dbReady = false;
-let dbFailed = false;
-let dbFailedAt = 0; // timestamp of last failure, for cooldown
+let dbFailedAt = 0;
+let tablesVerified = false; // Only verify tables once per process
 
 /**
  * Check if database is available
@@ -29,38 +29,37 @@ export function getDbType() {
   return dbReady ? 'mysql' : null;
 }
 
-const DB_COOLDOWN_MS = 10_000; // retry after 10 seconds
+const DB_COOLDOWN_MS = 3_000; // Retry after 3 seconds (aggressive for better UX)
 
 /**
  * Initialize the MySQL database connection
  * Returns true if connected, false if failed (graceful degradation)
- * Uses time-based cooldown instead of permanent failure flag
  */
 export async function initDatabase() {
-  // Already initialized — return immediately (no health check overhead)
+  // Fast path: already connected and pool exists
   if (dbReady && pool) {
     return true;
   }
 
-  // Failed recently — cooldown period to avoid hammering DB
-  if (dbFailed && (Date.now() - dbFailedAt) < DB_COOLDOWN_MS) {
+  // Failed recently — short cooldown to avoid hammering DB
+  if (dbFailedAt && (Date.now() - dbFailedAt) < DB_COOLDOWN_MS) {
     return false;
-  }
-  // Cooldown expired, allow retry
-  if (dbFailed) {
-    dbFailed = false;
-    console.log('🔄 Retrying MySQL connection after cooldown...');
   }
 
   // Check required env vars
   if (!process.env.DB_HOST || !process.env.DB_USER || !process.env.DB_PASSWORD || !process.env.DB_NAME) {
-    console.warn('⚠️  MySQL env vars missing (DB_HOST, DB_USER, DB_PASSWORD, DB_NAME). Running in offline mode.');
-    dbFailed = true;
+    console.warn('⚠️  MySQL env vars missing. Running in offline mode.');
     dbFailedAt = Date.now();
     return false;
   }
 
   try {
+    // Clean up any stale pool
+    if (pool) {
+      try { await pool.end(); } catch { /* ignore */ }
+      pool = null;
+    }
+
     pool = mysql.createPool({
       host: process.env.DB_HOST,
       port: parseInt(process.env.DB_PORT || '3306'),
@@ -68,44 +67,48 @@ export async function initDatabase() {
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
       waitForConnections: true,
-      connectionLimit: 5, // Lower for serverless
+      connectionLimit: 3, // Conservative for serverless
       queueLimit: 0,
-      connectTimeout: 8000, // 8s timeout for serverless (increased from 5s)
+      connectTimeout: 10000, // 10s connect timeout
       enableKeepAlive: true,
-      keepAliveInitialDelay: 10000,
-      idleTimeout: 60000, // Close idle connections after 60s
+      keepAliveInitialDelay: 5000,
+      idleTimeout: 30000, // Close idle connections after 30s
+      maxIdle: 1, // Keep only 1 idle connection
     });
 
     // Test connection with timeout
     const conn = await Promise.race([
       pool.getConnection(),
       new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('MySQL connection timed out (8s)')), 8000)
+        setTimeout(() => reject(new Error('MySQL connection timed out')), 10000)
       ),
     ]);
     await conn.ping();
     conn.release();
 
     dbReady = true;
-    dbFailed = false;
+    dbFailedAt = 0;
     console.log('✅ Connected to MySQL database');
 
-    // Create MySQL tables if they don't exist
-    await createMySQLTables(pool);
+    // Only verify tables once per process lifetime (not on every reconnection)
+    if (!tablesVerified) {
+      await createMySQLTables(pool);
+      tablesVerified = true;
+    }
+
     return true;
   } catch (mysqlError) {
     console.warn('⚠️  MySQL connection failed:', mysqlError.message);
-    console.warn('⚠️  Running in offline mode — will retry after cooldown.');
     try { await pool?.end(); } catch { /* ignore */ }
     pool = null;
-    dbFailed = true;
+    dbReady = false;
     dbFailedAt = Date.now();
     return false;
   }
 }
 
 /**
- * Create MySQL tables if they don't exist
+ * Create MySQL tables if they don't exist (runs only once per process)
  */
 async function createMySQLTables(pool) {
   console.log('📋 Verifying MySQL tables...');
@@ -214,9 +217,9 @@ async function createMySQLTables(pool) {
 }
 
 /**
- * Execute a query against MySQL
+ * Execute a query against MySQL with automatic stale connection recovery
  * Returns [rows] for SELECT, and {insertId, affectedRows} for INSERT/UPDATE/DELETE
- * Throws if database is not available
+ * Throws if database is not available after retry
  */
 export async function query(sql, params = []) {
   if (!pool) {
@@ -236,16 +239,26 @@ export async function query(sql, params = []) {
     // For INSERT/UPDATE/DELETE, mysql2 returns ResultSetHeader
     return result;
   } catch (error) {
-    // Detect stale connections and reset pool for next attempt
-    if (error.code === 'PROTOCOL_CONNECTION_LOST' ||
-        error.code === 'ECONNRESET' ||
-        error.code === 'ETIMEDOUT' ||
-        error.code === 'CONN_UNUSABLE') {
-      console.warn('⚠️  Stale MySQL connection detected, resetting pool...');
+    // Detect stale connections and auto-reconnect + retry once
+    const STALE_CODES = ['PROTOCOL_CONNECTION_LOST', 'ECONNRESET', 'ETIMEDOUT', 'CONN_UNUSABLE', 'ER_CON_COUNT_ERROR'];
+    if (STALE_CODES.includes(error.code)) {
+      console.warn('⚠️  Stale MySQL connection detected, reconnecting and retrying...');
       try { await pool.end(); } catch { /* ignore */ }
       pool = null;
       dbReady = false;
-      dbFailed = false;
+      dbFailedAt = 0;
+
+      // Attempt to reconnect and retry the query once
+      const reconnected = await initDatabase();
+      if (reconnected && pool) {
+        try {
+          const [result] = await pool.query(sql, params);
+          if (Array.isArray(result)) return result;
+          return result;
+        } catch (retryError) {
+          console.error('⚠️  Query retry failed:', retryError.message);
+        }
+      }
     }
     throw error;
   }
@@ -260,7 +273,6 @@ export async function closeDatabase() {
     console.log('🔌 MySQL connection closed.');
     pool = null;
     dbReady = false;
-    dbFailed = false;
     dbFailedAt = 0;
   }
 }
