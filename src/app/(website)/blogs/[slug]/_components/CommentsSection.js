@@ -34,6 +34,9 @@ const CommentsSection = ({ postId }) => {
     // Refs
     const commentsEndRef = useRef(null);
     const scrollContainerRef = useRef(null);
+    const currentPageRef = useRef(1);
+    // Keep ref in sync with state
+    useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
 
     // Debug: Log auth state
     useEffect(() => {
@@ -65,7 +68,7 @@ const CommentsSection = ({ postId }) => {
         }
 
         try {
-            const page = isInitialLoad ? 1 : currentPage;
+            const page = isInitialLoad ? 1 : currentPageRef.current;
             const res = await fetch(`/api/posts/${postId}/comments?page=${page}&limit=${commentsPerPage}&sort=${sortBy}`);
             const data = await res.json();
 
@@ -116,6 +119,7 @@ const CommentsSection = ({ postId }) => {
                 setCurrentPage(prev => prev + 1);
             } else {
                 setCurrentPage(2);
+                currentPageRef.current = 2;
             }
 
         } catch (error) {
@@ -124,7 +128,7 @@ const CommentsSection = ({ postId }) => {
             else setLoadingMore(false);
             toast.error('Failed to load comments. Please refresh the page.');
         }
-    }, [postId, sortBy, currentPage, commentsPerPage]);
+    }, [postId, sortBy, commentsPerPage]);
 
     /**
      * Load more comments when scrolling to bottom
@@ -150,16 +154,20 @@ const CommentsSection = ({ postId }) => {
     }, [loadMoreComments]);
 
     /**
-     * Set up comments fetch when postId, user, or sortBy changes
+     * Set up comments fetch when postId or sortBy changes
+     * NOTE: We intentionally do NOT include fetchComments in deps to avoid
+     * infinite loops caused by currentPage state changes.
      */
     useEffect(() => {
-        // Reset pagination state when sort changes
+        // Reset pagination state
         setCurrentPage(1);
+        currentPageRef.current = 1;
         setHasMore(true);
 
-        // Fetch comments with new sort option
+        // Fetch comments
         fetchComments(true);
-    }, [fetchComments, sortBy]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [postId, sortBy]);
 
     /**
      * Set up scroll event listener

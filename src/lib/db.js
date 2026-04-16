@@ -6,6 +6,7 @@ import mysql from 'mysql2/promise';
 let pool = null;
 let dbReady = false;
 let dbFailed = false;
+let dbFailedAt = 0; // timestamp of last failure, for cooldown
 
 /**
  * Check if database is available
@@ -28,21 +29,46 @@ export function getDbType() {
   return dbReady ? 'mysql' : null;
 }
 
+const DB_COOLDOWN_MS = 10_000; // retry after 10 seconds
+
 /**
  * Initialize the MySQL database connection
  * Returns true if connected, false if failed (graceful degradation)
+ * Uses time-based cooldown instead of permanent failure flag
  */
 export async function initDatabase() {
-  // Already initialized
-  if (dbReady) return true;
+  // Already initialized — but verify pool is alive
+  if (dbReady && pool) {
+    try {
+      const conn = await pool.getConnection();
+      await conn.ping();
+      conn.release();
+      return true;
+    } catch {
+      // Pool is dead, reset and retry
+      console.warn('⚠️  MySQL pool is stale, reconnecting...');
+      try { await pool.end(); } catch { /* ignore */ }
+      pool = null;
+      dbReady = false;
+      dbFailed = false;
+    }
+  }
 
-  // Already failed — don't retry (serverless: each cold start gets one chance)
-  if (dbFailed) return false;
+  // Failed recently — cooldown period to avoid hammering DB
+  if (dbFailed && (Date.now() - dbFailedAt) < DB_COOLDOWN_MS) {
+    return false;
+  }
+  // Cooldown expired, allow retry
+  if (dbFailed) {
+    dbFailed = false;
+    console.log('🔄 Retrying MySQL connection after cooldown...');
+  }
 
   // Check required env vars
   if (!process.env.DB_HOST || !process.env.DB_USER || !process.env.DB_PASSWORD || !process.env.DB_NAME) {
     console.warn('⚠️  MySQL env vars missing (DB_HOST, DB_USER, DB_PASSWORD, DB_NAME). Running in offline mode.');
     dbFailed = true;
+    dbFailedAt = Date.now();
     return false;
   }
 
@@ -56,22 +82,24 @@ export async function initDatabase() {
       waitForConnections: true,
       connectionLimit: 5, // Lower for serverless
       queueLimit: 0,
-      connectTimeout: 5000, // 5s timeout for serverless
+      connectTimeout: 8000, // 8s timeout for serverless (increased from 5s)
       enableKeepAlive: true,
       keepAliveInitialDelay: 10000,
+      idleTimeout: 60000, // Close idle connections after 60s
     });
 
     // Test connection with timeout
     const conn = await Promise.race([
       pool.getConnection(),
       new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('MySQL connection timed out (5s)')), 5000)
+        setTimeout(() => reject(new Error('MySQL connection timed out (8s)')), 8000)
       ),
     ]);
     await conn.ping();
     conn.release();
 
     dbReady = true;
+    dbFailed = false;
     console.log('✅ Connected to MySQL database');
 
     // Create MySQL tables if they don't exist
@@ -79,9 +107,11 @@ export async function initDatabase() {
     return true;
   } catch (mysqlError) {
     console.warn('⚠️  MySQL connection failed:', mysqlError.message);
-    console.warn('⚠️  Running in offline mode — API routes will return empty data.');
+    console.warn('⚠️  Running in offline mode — will retry after cooldown.');
+    try { await pool?.end(); } catch { /* ignore */ }
     pool = null;
     dbFailed = true;
+    dbFailedAt = Date.now();
     return false;
   }
 }
@@ -228,6 +258,7 @@ export async function closeDatabase() {
     pool = null;
     dbReady = false;
     dbFailed = false;
+    dbFailedAt = 0;
   }
 }
 
