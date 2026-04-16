@@ -37,21 +37,9 @@ const DB_COOLDOWN_MS = 10_000; // retry after 10 seconds
  * Uses time-based cooldown instead of permanent failure flag
  */
 export async function initDatabase() {
-  // Already initialized — but verify pool is alive
+  // Already initialized — return immediately (no health check overhead)
   if (dbReady && pool) {
-    try {
-      const conn = await pool.getConnection();
-      await conn.ping();
-      conn.release();
-      return true;
-    } catch {
-      // Pool is dead, reset and retry
-      console.warn('⚠️  MySQL pool is stale, reconnecting...');
-      try { await pool.end(); } catch { /* ignore */ }
-      pool = null;
-      dbReady = false;
-      dbFailed = false;
-    }
+    return true;
   }
 
   // Failed recently — cooldown period to avoid hammering DB
@@ -235,17 +223,32 @@ export async function query(sql, params = []) {
     throw new Error('Database not available');
   }
 
-  // Use pool.query() instead of pool.execute() — execute() uses prepared statements
-  // which can fail with certain MySQL versions/configurations on LIMIT/OFFSET params
-  const [result] = await pool.query(sql, params);
+  try {
+    // Use pool.query() instead of pool.execute() — execute() uses prepared statements
+    // which can fail with certain MySQL versions/configurations on LIMIT/OFFSET params
+    const [result] = await pool.query(sql, params);
 
-  // For SELECT queries, mysql2 returns [rows]
-  if (Array.isArray(result)) {
+    // For SELECT queries, mysql2 returns [rows]
+    if (Array.isArray(result)) {
+      return result;
+    }
+
+    // For INSERT/UPDATE/DELETE, mysql2 returns ResultSetHeader
     return result;
+  } catch (error) {
+    // Detect stale connections and reset pool for next attempt
+    if (error.code === 'PROTOCOL_CONNECTION_LOST' ||
+        error.code === 'ECONNRESET' ||
+        error.code === 'ETIMEDOUT' ||
+        error.code === 'CONN_UNUSABLE') {
+      console.warn('⚠️  Stale MySQL connection detected, resetting pool...');
+      try { await pool.end(); } catch { /* ignore */ }
+      pool = null;
+      dbReady = false;
+      dbFailed = false;
+    }
+    throw error;
   }
-
-  // For INSERT/UPDATE/DELETE, mysql2 returns ResultSetHeader
-  return result;
 }
 
 /**
