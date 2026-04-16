@@ -1,6 +1,6 @@
 import { generateHomeMetadata } from '../seo/meta';
 import { SITE_NAME, SITE_URL } from '../seo/constants';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import Link from 'next/link';
 import Image from 'next/image';
 import { MessageCircle, ArrowRight, ChevronRight, Eye, Calendar, User, MapPin } from 'lucide-react';
@@ -13,14 +13,21 @@ export const metadata = generateHomeMetadata();
 
 // ── Internal fetch helper ────────────────────────────────────
 
-function getBaseUrl() {
-    const vercelUrl = process.env.VERCEL_URL;
-    if (vercelUrl) return `https://${vercelUrl}`;
-    return process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+async function getBaseUrl() {
+    // On Vercel, use the host from the incoming request headers (most reliable)
+    const headersList = await headers();
+    const host = headersList.get('host') || headersList.get('x-forwarded-host');
+    const protocol = headersList.get('x-forwarded-proto') || 'https';
+    if (host) return `${protocol}://${host}`;
+    // Fallback env vars
+    if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+    if (process.env.NEXT_PUBLIC_BASE_URL) return process.env.NEXT_PUBLIC_BASE_URL;
+    return 'http://localhost:3000';
 }
 
 async function apiFetch(path, options = {}) {
-    const url = `${getBaseUrl()}${path}`;
+    const base = await getBaseUrl();
+    const url = `${base}${path}`;
     const res = await fetch(url, { cache: 'no-store', ...options });
     if (!res.ok) throw new Error(`API error: ${res.status}`);
     const json = await res.json();
