@@ -1,6 +1,4 @@
 import { generateBlogListingMetadata } from '@/app/seo/meta';
-import { query, initDatabase } from '@/lib/db';
-import { formatPost } from '@/lib/apiHelper';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Suspense } from 'react';
@@ -9,8 +7,21 @@ import BlogSearchFilter from './_components/BlogSearchFilter';
 import NewsletterForm from '../_components/NewsletterForm';
 import AdsGoogle from '@/components/AdsGoogle';
 
-async function ensureDb() {
-    return await initDatabase();
+// ── Internal fetch helper ────────────────────────────────────
+
+function getBaseUrl() {
+    const vercelUrl = process.env.VERCEL_URL;
+    if (vercelUrl) return `https://${vercelUrl}`;
+    return process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+}
+
+async function apiFetch(path, options = {}) {
+    const url = `${getBaseUrl()}${path}`;
+    const res = await fetch(url, { cache: 'no-store', ...options });
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'API request failed');
+    return json.data;
 }
 
 // Helper function to remove duplicates by ID
@@ -24,50 +35,25 @@ function removeDuplicatesById(array) {
     });
 }
 
-// Helper to fetch posts with filters
+// Helper to fetch posts with filters via API
 async function fetchPostsWithFilters(search = '', category = '', page = 1, limit = 12) {
     try {
-        await ensureDb();
+        const params = new URLSearchParams();
+        if (search) params.set('search', search);
+        if (category) params.set('category', category);
+        params.set('page', page.toString());
+        params.set('limit', limit.toString());
 
-        const conditions = ["p.status = 'published'", 'p.is_deleted = 0'];
-        const values = [];
-
-        if (search) {
-            conditions.push('(p.title LIKE ? OR p.excerpt LIKE ?)');
-            const term = `%${search}%`;
-            values.push(term, term);
-        }
-
-        if (category) {
-            conditions.push('p.category_ids LIKE ?');
-            values.push(`%"${category}"%`);
-        }
-
-        const where = conditions.join(' AND ');
-
-        // Count total
-        const countRows = await query(`SELECT COUNT(*) as total FROM posts p WHERE ${where}`, values);
-        const totalPosts = Array.isArray(countRows) && countRows[0] ? countRows[0].total : 0;
-
-        // Fetch paginated posts
-        const offset = (page - 1) * limit;
-        const postRows = await query(
-            `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar, a.bio as author_bio
-             FROM posts p LEFT JOIN authors a ON p.author_id = a.id
-             WHERE ${where}
-             ORDER BY p.published_at DESC
-             LIMIT ? OFFSET ?`,
-            [...values, limit, offset]
-        );
-
-        const posts = Array.isArray(postRows) ? postRows.map(formatPost) : [];
+        const data = await apiFetch(`/api/posts?${params.toString()}`);
+        const posts = data.posts || [];
+        const pagination = data.pagination || { page: 1, limit, total: 0, totalPages: 1 };
 
         return {
             posts,
-            hasMore: totalPosts > offset + limit,
-            totalPosts,
-            currentPage: page,
-            totalPages: Math.ceil(totalPosts / limit)
+            hasMore: pagination.page < pagination.totalPages,
+            totalPosts: pagination.total || 0,
+            currentPage: pagination.page || 1,
+            totalPages: pagination.totalPages || 1,
         };
     } catch (error) {
         console.error('Error fetching posts with filters:', error);
@@ -75,71 +61,43 @@ async function fetchPostsWithFilters(search = '', category = '', page = 1, limit
     }
 }
 
-// Fetch a featured article
+// Fetch a featured article via API
 async function fetchFeaturedArticle() {
     try {
-        await ensureDb();
-        const rows = await query(
-            `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar, a.bio as author_bio
-             FROM posts p LEFT JOIN authors a ON p.author_id = a.id
-             WHERE p.status = 'published' AND p.is_deleted = 0 AND p.is_featured = 1
-             ORDER BY p.published_at DESC LIMIT 1`
-        );
-        if (Array.isArray(rows) && rows.length > 0) return formatPost(rows[0]);
-
-        const fallback = await query(
-            `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar, a.bio as author_bio
-             FROM posts p LEFT JOIN authors a ON p.author_id = a.id
-             WHERE p.status = 'published' AND p.is_deleted = 0
-             ORDER BY p.published_at DESC LIMIT 1`
-        );
-        return Array.isArray(fallback) && fallback.length > 0 ? formatPost(fallback[0]) : null;
+        const data = await apiFetch('/api/posts?featured=1&limit=1');
+        const posts = data.posts || [];
+        if (posts.length > 0) return posts[0];
+        // Fallback to latest
+        const latest = await apiFetch('/api/posts?limit=1');
+        const latestPosts = latest.posts || [];
+        return latestPosts.length > 0 ? latestPosts[0] : null;
     } catch { return null; }
 }
 
 async function fetchRecentStories(count = 4) {
     try {
-        await ensureDb();
-        const rows = await query(
-            `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar, a.bio as author_bio
-             FROM posts p LEFT JOIN authors a ON p.author_id = a.id
-             WHERE p.status = 'published' AND p.is_deleted = 0
-             ORDER BY p.published_at DESC LIMIT ?`,
-            [count]
-        );
-        return Array.isArray(rows) ? rows.map(formatPost) : [];
+        const data = await apiFetch(`/api/posts?limit=${count}`);
+        return data.posts || [];
     } catch { return []; }
 }
 
 async function fetchPopularArticles(count = 4) {
     try {
-        await ensureDb();
-        const rows = await query(
-            `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar, a.bio as author_bio
-             FROM posts p LEFT JOIN authors a ON p.author_id = a.id
-             WHERE p.status = 'published' AND p.is_deleted = 0
-             ORDER BY p.stats_views DESC LIMIT ?`,
-            [count]
-        );
-        return Array.isArray(rows) ? rows.map(formatPost) : [];
+        const data = await apiFetch(`/api/posts?sort=views&sortDir=desc&limit=${count}`);
+        return data.posts || [];
     } catch { return []; }
 }
 
 async function fetchCategories() {
     try {
-        await ensureDb();
-        const rows = await query(
-            `SELECT c.*, (SELECT COUNT(*) FROM posts p WHERE p.category_ids LIKE CONCAT('%"', c.slug, '"%') AND p.status = 'published' AND p.is_deleted = 0) as post_count
-             FROM categories c WHERE c.is_active = 1
-             ORDER BY c.name ASC`
-        );
-        return Array.isArray(rows) ? rows.map((r) => ({
+        const data = await apiFetch('/api/categories');
+        return (data.categories || []).map((r) => ({
             id: r.id,
             name: r.name,
             slug: r.slug,
             description: r.description,
-            postCount: r.post_count || 0,
-        })) : [];
+            postCount: r.postCount || 0,
+        }));
     } catch { return []; }
 }
 

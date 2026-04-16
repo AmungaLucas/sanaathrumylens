@@ -1,120 +1,105 @@
 import { generateBlogMetadata } from "@/app/seo/meta";
 import BlogPostClient from "./BlogPostClient";
-import { query, initDatabase } from "@/lib/db";
-import { formatPost } from "@/lib/apiHelper";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import Link from "next/link";
 import { FileQuestion, Home } from "lucide-react";
 
-async function ensureDb() {
-  return await initDatabase();
+// ── Internal fetch helper ────────────────────────────────────
+
+function getBaseUrl() {
+    const vercelUrl = process.env.VERCEL_URL;
+    if (vercelUrl) return `https://${vercelUrl}`;
+    return process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
 }
 
+async function apiFetch(path, options = {}) {
+    const url = `${getBaseUrl()}${path}`;
+    const res = await fetch(url, { cache: 'no-store', ...options });
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'API request failed');
+    return json.data;
+}
+
+// ── Server-side data fetching via API ─────────────────────────────
+
 async function fetchPostBySlug(slug) {
-    const result = await query(
-        `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar, a.bio as author_bio
-         FROM posts p LEFT JOIN authors a ON p.author_id = a.id
-         WHERE p.slug = ? AND p.status = 'published' AND p.is_deleted = 0 LIMIT 1`,
-        [slug]
-    );
-    if (!Array.isArray(result) || !result.length) return null;
-    return formatPost(result[0]);
+    try {
+        const post = await apiFetch(`/api/posts/${slug}`);
+        return post || null;
+    } catch { return null; }
 }
 
 async function fetchRecentStories(limit = 4) {
-    const result = await query(
-        `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar
-         FROM posts p LEFT JOIN authors a ON p.author_id = a.id
-         WHERE p.status = 'published' AND p.is_deleted = 0
-         ORDER BY p.published_at DESC LIMIT ?`,
-        [limit]
-    );
-    return (Array.isArray(result) ? result : []).map(formatPost);
+    try {
+        const data = await apiFetch(`/api/posts?limit=${limit}`);
+        return data.posts || [];
+    } catch { return []; }
 }
 
 async function fetchCategories() {
-    const result = await query(
-        "SELECT * FROM categories WHERE is_active = 1 ORDER BY name"
-    );
-    return Array.isArray(result) ? result : [];
+    try {
+        const data = await apiFetch('/api/categories');
+        return data.categories || [];
+    } catch { return []; }
 }
 
 async function fetchArticlesByAuthor(authorId, excludePostId, limit = 4) {
-    const result = await query(
-        `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar
-         FROM posts p LEFT JOIN authors a ON p.author_id = a.id
-         WHERE p.author_id = ? AND p.status = 'published' AND p.is_deleted = 0 AND p.id != ?
-         ORDER BY p.published_at DESC LIMIT ?`,
-        [authorId, excludePostId, limit]
-    );
-    return (Array.isArray(result) ? result : []).map(formatPost);
+    try {
+        // API doesn't support author filtering, so fetch a larger set and filter client-side
+        const data = await apiFetch('/api/posts?limit=20');
+        const posts = (data.posts || [])
+            .filter(p => p.author?.id === authorId && p.id !== excludePostId)
+            .slice(0, limit);
+        return posts;
+    } catch { return []; }
 }
 
 async function fetchRelatedPosts(categoryIds, excludePostId, limit = 4) {
     if (!categoryIds || !categoryIds.length) return [];
-    // Simple approach: get recent posts excluding current, then filter client-side
-    const result = await query(
-        `SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar
-         FROM posts p LEFT JOIN authors a ON p.author_id = a.id
-         WHERE p.status = 'published' AND p.is_deleted = 0 AND p.id != ?
-         ORDER BY p.published_at DESC LIMIT 10`,
-        [excludePostId]
-    );
-    const posts = (Array.isArray(result) ? result : []).map(formatPost);
-    // Filter by category overlap
-    return posts
-        .filter(p => {
-            if (!p.categoryIds || !p.categoryIds.length) return false;
-            return p.categoryIds.some(cid => categoryIds.includes(cid));
-        })
-        .slice(0, limit);
+    try {
+        // API doesn't support related posts, so fetch recent and filter by category overlap
+        const data = await apiFetch('/api/posts?limit=20');
+        const posts = (data.posts || [])
+            .filter(p => {
+                if (p.id === excludePostId) return false;
+                if (!p.categoryIds || !p.categoryIds.length) return false;
+                return p.categoryIds.some(cid => categoryIds.includes(cid));
+            })
+            .slice(0, limit);
+        return posts;
+    } catch { return []; }
 }
 
 export async function generateMetadata({ params }) {
     const { slug } = await params;
-    const dbOk = await ensureDb();
-    if (!dbOk) {
+    try {
+        const post = await fetchPostBySlug(slug);
+
+        if (!post) {
+            return {
+                title: "Article Not Found",
+                description: "The requested article could not be found.",
+            };
+        }
+
+        return generateBlogMetadata({
+            title: post.title,
+            excerpt: post.excerpt,
+            slug,
+            ogImage: post.coverImage || post.featuredImage,
+            authorName: post.author?.name,
+            publishedDate: post.publishedAt,
+        });
+    } catch {
         return { title: "Sanaathrumylens", description: "High-quality articles on architecture, design, and technology." };
     }
-    const post = await fetchPostBySlug(slug);
-
-    if (!post) {
-        return {
-            title: "Article Not Found",
-            description: "The requested article could not be found.",
-        };
-    }
-
-    return generateBlogMetadata({
-        title: post.title,
-        excerpt: post.excerpt,
-        slug,
-        ogImage: post.coverImage || post.featuredImage,
-        authorName: post.author?.name,
-        publishedDate: post.publishedAt,
-    });
 }
 
 export default async function Page({ params }) {
     const { slug } = await params;
 
     try {
-        const dbOk = await ensureDb();
-
-        if (!dbOk) {
-            return (
-                <div className="min-h-screen flex items-center justify-center p-8 bg-base-bg">
-                    <div className="text-center max-w-md p-10 bg-surface rounded-2xl border border-base-border shadow-xl">
-                        <h1 className="text-3xl font-bold mb-4 text-base-fg">Service Unavailable</h1>
-                        <p className="text-base-muted mb-8">The site is currently unavailable. Please try again later.</p>
-                        <Link href="/" className="inline-flex items-center gap-2 px-8 py-3 bg-primary text-surface rounded-full font-bold uppercase tracking-widest text-sm hover:bg-secondary transition-all shadow-md">
-                            <Home size={18} /> Back to Home
-                        </Link>
-                    </div>
-                </div>
-            );
-        }
-
         const post = await fetchPostBySlug(slug);
 
         if (!post) {

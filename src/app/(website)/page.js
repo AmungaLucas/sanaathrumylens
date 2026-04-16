@@ -1,8 +1,6 @@
 import { generateHomeMetadata } from '../seo/meta';
 import { SITE_NAME, SITE_URL } from '../seo/constants';
 import { cookies } from 'next/headers';
-import { initDatabase, query } from '@/lib/db';
-import { formatPost } from '@/lib/apiHelper';
 import Link from 'next/link';
 import Image from 'next/image';
 import { MessageCircle, ArrowRight, ChevronRight, Eye, Calendar, User, MapPin } from 'lucide-react';
@@ -12,6 +10,23 @@ import NewsletterForm from './_components/NewsletterForm';
 import AdsGoogle from '@/components/AdsGoogle';
 
 export const metadata = generateHomeMetadata();
+
+// ── Internal fetch helper ────────────────────────────────────
+
+function getBaseUrl() {
+    const vercelUrl = process.env.VERCEL_URL;
+    if (vercelUrl) return `https://${vercelUrl}`;
+    return process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+}
+
+async function apiFetch(path, options = {}) {
+    const url = `${getBaseUrl()}${path}`;
+    const res = await fetch(url, { cache: 'no-store', ...options });
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'API request failed');
+    return json.data;
+}
 
 // ── Helper functions (plain, not hooks) ──────────────────────────
 
@@ -45,86 +60,53 @@ function formatEventDate(startDate, endDate) {
     return `${formatDate(startDate)} - ${formatDate(endDate)}`;
 }
 
-// ── Server-side data fetching ────────────────────────────────────
-
-const POST_BASE_SELECT = `
-    SELECT p.*, a.name as author_name, a.slug as author_slug, a.avatar as author_avatar, a.bio as author_bio
-    FROM posts p LEFT JOIN authors a ON p.author_id = a.id
-`;
+// ── Server-side data fetching via API ─────────────────────────────
 
 async function fetchArticles(limit = 12) {
-    await initDatabase();
-    const rows = await query(
-        `${POST_BASE_SELECT} WHERE p.status = 'published' AND p.is_deleted = 0 ORDER BY p.published_at DESC LIMIT ?`,
-        [limit]
-    );
-    return rows.map(formatPost);
+    try {
+        const data = await apiFetch(`/api/posts?limit=${limit}`);
+        return data.posts || [];
+    } catch { return []; }
 }
 
 async function fetchPopularArticles(limit = 3) {
-    await initDatabase();
-    const rows = await query(
-        `${POST_BASE_SELECT} WHERE p.status = 'published' AND p.is_deleted = 0 ORDER BY p.stats_views DESC LIMIT ?`,
-        [limit]
-    );
-    return rows.map(formatPost);
+    try {
+        const data = await apiFetch(`/api/posts?sort=views&sortDir=desc&limit=${limit}`);
+        return data.posts || [];
+    } catch { return []; }
 }
 
 async function fetchFeaturedArticle() {
-    await initDatabase();
-    // Try to find a featured article first
-    const rows = await query(
-        `${POST_BASE_SELECT} WHERE p.status = 'published' AND p.is_deleted = 0 AND p.is_featured = 1 ORDER BY p.published_at DESC LIMIT 1`
-    );
-    if (rows.length > 0) return formatPost(rows[0]);
-
-    // Fallback to latest
-    const fallback = await query(
-        `${POST_BASE_SELECT} WHERE p.status = 'published' AND p.is_deleted = 0 ORDER BY p.published_at DESC LIMIT 1`
-    );
-    return fallback.length > 0 ? formatPost(fallback[0]) : null;
+    try {
+        const data = await apiFetch('/api/posts?featured=1&limit=1');
+        const posts = data.posts || [];
+        if (posts.length > 0) return posts[0];
+        // Fallback to latest
+        const latest = await apiFetch('/api/posts?limit=1');
+        const latestPosts = latest.posts || [];
+        return latestPosts.length > 0 ? latestPosts[0] : null;
+    } catch { return null; }
 }
 
 async function fetchRecentStories(limit = 5) {
-    await initDatabase();
-    const rows = await query(
-        `${POST_BASE_SELECT} WHERE p.status = 'published' AND p.is_deleted = 0 ORDER BY p.published_at DESC LIMIT ?`,
-        [limit]
-    );
-    return rows.map(formatPost);
+    try {
+        const data = await apiFetch(`/api/posts?limit=${limit}`);
+        return data.posts || [];
+    } catch { return []; }
 }
 
 async function fetchCategories() {
-    await initDatabase();
-    const rows = await query(
-        `SELECT * FROM categories WHERE is_active = 1 ORDER BY name ASC`
-    );
-    return rows;
+    try {
+        const data = await apiFetch('/api/categories');
+        return data.categories || [];
+    } catch { return []; }
 }
 
 async function fetchUpcomingEvents(limit = 4) {
-    await initDatabase();
     try {
-        const rows = await query(
-            `SELECT * FROM events WHERE status = 'published' AND is_deleted = 0 AND start_date >= NOW() ORDER BY start_date ASC LIMIT ?`,
-            [limit]
-        );
-        return rows.map(row => ({
-            id: row.id,
-            slug: row.slug,
-            title: row.title,
-            excerpt: row.excerpt,
-            coverImage: row.cover_image,
-            featuredImage: row.featured_image,
-            location: row.location,
-            isOnline: Boolean(row.is_online),
-            startDate: row.start_date ? new Date(row.start_date).toISOString() : null,
-            endDate: row.end_date ? new Date(row.end_date).toISOString() : null,
-            isFeatured: Boolean(row.is_featured),
-        }));
-    } catch {
-        return [];
-    }
+        const data = await apiFetch(`/api/events?upcoming=true&limit=${limit}`);
+        return data.events || [];
+    } catch { return []; }
 }
 
 // ── Page component ───────────────────────────────────────────────
@@ -136,12 +118,12 @@ export default async function HomePage() {
     // Fetch all data in parallel
     const [articles, popularArticles, featuredArticle, recentStories, categories, upcomingEvents] =
         await Promise.all([
-            fetchArticles(12).catch(() => []),
-            fetchPopularArticles(3).catch(() => []),
-            fetchFeaturedArticle().catch(() => null),
-            fetchRecentStories(5).catch(() => []),
-            fetchCategories().catch(() => []),
-            fetchUpcomingEvents(4).catch(() => []),
+            fetchArticles(12),
+            fetchPopularArticles(3),
+            fetchFeaturedArticle(),
+            fetchRecentStories(5),
+            fetchCategories(),
+            fetchUpcomingEvents(4),
         ]);
 
     // Show first 6 articles in the grid
