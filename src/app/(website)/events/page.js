@@ -9,6 +9,9 @@ import EventsFilterBar from './_components/EventsFilterBar';
 import EventsCalendar from './_components/EventsCalendar';
 import AdsGoogle from '@/components/AdsGoogle';
 
+// ISR: Revalidate page every 60 seconds
+export const revalidate = 60;
+
 async function ensureDb() {
     return await initDatabase();
 }
@@ -247,7 +250,6 @@ export default async function EventsPage({ searchParams }) {
                                                     className="object-cover"
                                                     sizes="(max-width: 768px) 100vw, 50vw"
                                                     priority
-                                                    unoptimized
                                                 />
                                             ) : (
                                                 <div className="w-full h-full bg-linear-to-br from-[#F5F1EB] to-[#F0E8D9]"></div>
@@ -324,7 +326,6 @@ export default async function EventsPage({ searchParams }) {
                                                             fill
                                                             className="object-cover"
                                                             sizes="(max-width: 768px) 100vw, 50vw"
-                                                            unoptimized
                                                         />
                                                     ) : (
                                                         <div className="w-full h-full bg-linear-to-br from-[#F5F1EB] to-[#F0E8D9]"></div>
@@ -381,7 +382,6 @@ export default async function EventsPage({ searchParams }) {
                                                         fill
                                                         className="object-cover"
                                                         sizes="(max-width: 768px) 100vw, 50vw"
-                                                        unoptimized
                                                     />
                                                 ) : (
                                                     <div className="w-full h-full bg-linear-to-br from-[#F5F1EB] to-[#F0E8D9]"></div>

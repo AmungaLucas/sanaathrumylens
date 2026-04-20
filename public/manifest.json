@@ -1,0 +1,10 @@
+{
+  "name": "Sanaa Thru My Lens",
+  "short_name": "Sanaa Lens",
+  "description": "High-quality articles, insights, and updates on Kenyan art, culture, and photography.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f1e8",
+  "theme_color": "#ea580c",
+  "icons": []
+}

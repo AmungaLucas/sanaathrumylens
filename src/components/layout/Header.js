@@ -83,7 +83,6 @@ export default function Header() {
                                 className="object-contain"
                                 priority={true}
                                 fetchPriority="high"
-                                unoptimized
                             />
                         </div>
                         <span className="font-semibold text-gray-800 text-lg">Sanaathrumylens</span>
@@ -127,7 +126,6 @@ export default function Header() {
                                                         width={32}
                                                         height={32}
                                                         className="object-cover"
-                                                        unoptimized
                                                     />
                                                 </div>
                                             ) : (
@@ -247,7 +245,6 @@ export default function Header() {
                                                         width={40}
                                                         height={40}
                                                         className="object-cover"
-                                                        unoptimized
                                                     />
                                                 </div>
                                             ) : (

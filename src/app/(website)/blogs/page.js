@@ -1,5 +1,4 @@
 import { generateBlogListingMetadata } from '@/app/seo/meta';
-import { headers } from 'next/headers';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Suspense } from 'react';
@@ -8,22 +7,24 @@ import BlogSearchFilter from './_components/BlogSearchFilter';
 import NewsletterForm from '../_components/NewsletterForm';
 import AdsGoogle from '@/components/AdsGoogle';
 
+// ISR: Revalidate page every 60 seconds
+export const revalidate = 60;
+
 // ── Internal fetch helper ────────────────────────────────────
 
-async function getBaseUrl() {
-    const headersList = await headers();
-    const host = headersList.get('host') || headersList.get('x-forwarded-host');
-    const protocol = headersList.get('x-forwarded-proto') || 'https';
-    if (host) return `${protocol}://${host}`;
+function getBaseUrl() {
+    // Use environment variables only (no headers/cookies to avoid forcing dynamic rendering)
+    if (process.env.NEXT_PUBLIC_INTERNAL_URL) return process.env.NEXT_PUBLIC_INTERNAL_URL;
     if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
     if (process.env.NEXT_PUBLIC_BASE_URL) return process.env.NEXT_PUBLIC_BASE_URL;
     return 'http://localhost:3000';
 }
 
 async function apiFetch(path, options = {}) {
-    const base = await getBaseUrl();
+    const base = getBaseUrl();
     const url = `${base}${path}`;
-    const res = await fetch(url, { cache: 'no-store', ...options });
+    const { revalidate = 60, ...fetchOptions } = options;
+    const res = await fetch(url, { next: { revalidate }, ...fetchOptions });
     if (!res.ok) throw new Error(`API error: ${res.status}`);
     const json = await res.json();
     if (!json.success) throw new Error(json.error || 'API request failed');
@@ -50,7 +51,7 @@ async function fetchPostsWithFilters(search = '', category = '', page = 1, limit
         params.set('page', page.toString());
         params.set('limit', limit.toString());
 
-        const data = await apiFetch(`/api/posts?${params.toString()}`);
+        const data = await apiFetch(`/api/posts?${params.toString()}`, { revalidate: 60 });
         const posts = data.posts || [];
         const pagination = data.pagination || { page: 1, limit, total: 0, totalPages: 1 };
 
@@ -70,11 +71,11 @@ async function fetchPostsWithFilters(search = '', category = '', page = 1, limit
 // Fetch a featured article via API
 async function fetchFeaturedArticle() {
     try {
-        const data = await apiFetch('/api/posts?featured=1&limit=1');
+        const data = await apiFetch('/api/posts?featured=1&limit=1', { revalidate: 60 });
         const posts = data.posts || [];
         if (posts.length > 0) return posts[0];
         // Fallback to latest
-        const latest = await apiFetch('/api/posts?limit=1');
+        const latest = await apiFetch('/api/posts?limit=1', { revalidate: 60 });
         const latestPosts = latest.posts || [];
         return latestPosts.length > 0 ? latestPosts[0] : null;
     } catch { return null; }
@@ -82,21 +83,21 @@ async function fetchFeaturedArticle() {
 
 async function fetchRecentStories(count = 4) {
     try {
-        const data = await apiFetch(`/api/posts?limit=${count}`);
+        const data = await apiFetch(`/api/posts?limit=${count}`, { revalidate: 60 });
         return data.posts || [];
     } catch { return []; }
 }
 
 async function fetchPopularArticles(count = 4) {
     try {
-        const data = await apiFetch(`/api/posts?sort=views&sortDir=desc&limit=${count}`);
+        const data = await apiFetch(`/api/posts?sort=views&sortDir=desc&limit=${count}`, { revalidate: 60 });
         return data.posts || [];
     } catch { return []; }
 }
 
 async function fetchCategories() {
     try {
-        const data = await apiFetch('/api/categories');
+        const data = await apiFetch('/api/categories', { revalidate: 300 });
         return (data.categories || []).map((r) => ({
             id: r.id,
             name: r.name,
@@ -164,7 +165,7 @@ export default async function BlogPage({ searchParams }) {
     );
 
     // Generate canonical URL
-    const baseUrl = 'https://www.sanaathrumylens.com/blogs';
+    const baseUrl = 'https://www.sanaathrumylens.co.ke/blogs';
     const urlParams = new URLSearchParams();
     if (page > 1) urlParams.set('page', page.toString());
     if (search) urlParams.set('q', search);
@@ -185,7 +186,7 @@ export default async function BlogPage({ searchParams }) {
                     "@type": "ListItem",
                     "position": 1,
                     "name": "Home",
-                    "item": "https://www.sanaathrumylens.com"
+                    "item": "https://www.sanaathrumylens.co.ke"
                 },
                 {
                     "@type": "ListItem",
@@ -267,7 +268,6 @@ export default async function BlogPage({ searchParams }) {
                                                             fill
                                                             className="object-cover"
                                                             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                                                            unoptimized
                                                         />
                                                     ) : (
                                                         <div className="w-full h-full bg-linear-to-br from-gray-100 to-gray-300 flex items-center justify-center">
@@ -446,7 +446,6 @@ export default async function BlogPage({ searchParams }) {
                                                         fill
                                                         className="object-cover hover:scale-105 transition-transform duration-300"
                                                         sizes="320px"
-                                                        unoptimized
                                                     />
                                                 ) : (
                                                     <div className="w-full h-full bg-linear-to-br from-gray-100 to-gray-300 flex items-center justify-center">
@@ -499,7 +498,6 @@ export default async function BlogPage({ searchParams }) {
                                                                     width={64}
                                                                     height={64}
                                                                     className="w-full h-full object-cover"
-                                                                    unoptimized
                                                                 />
                                                             )}
                                                         </div>

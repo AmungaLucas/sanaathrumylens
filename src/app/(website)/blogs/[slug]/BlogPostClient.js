@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, Suspense, lazy } from "react";
+import { sanitizeHtml } from '@/lib/sanitize';
 import Link from "next/link";
 import Image from "next/image";
 import { toast } from "react-hot-toast";
@@ -319,8 +320,8 @@ export default function BlogPostClient({ initialPostData, slug }) {
                                         priority={false}
                                         placeholder="blur"
                                         blurDataURL="data:image/jpeg;base64,/9j/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAADAAQDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCdAD6H/9k="
-                                        unoptimized
-                                    />
+                                        />
+
                                 </div>
                             </div>
                         )}
@@ -328,7 +329,7 @@ export default function BlogPostClient({ initialPostData, slug }) {
                         <div className="col-span-3">
                             <article className="text-gray-700 leading-relaxed text-sm space-y-4">
                                 {post.content ? (
-                                    <div dangerouslySetInnerHTML={{ __html: post.content }} />
+                                    <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(post.content) }} />
                                 ) : (
                                     <ContentSkeleton />
                                 )}

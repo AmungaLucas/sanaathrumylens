@@ -4,7 +4,35 @@ const nextConfig = {
         remotePatterns: [
             {
                 protocol: 'https',
-                hostname: '**',
+                hostname: 'sanaathrumylens.co.ke',
+            },
+            {
+                protocol: 'https',
+                hostname: 'www.sanaathrumylens.co.ke',
+            },
+            {
+                protocol: 'https',
+                hostname: 'sanaathrumylens.com',
+            },
+            {
+                protocol: 'https',
+                hostname: 'www.sanaathrumylens.com',
+            },
+            {
+                protocol: 'https',
+                hostname: 'images.unsplash.com',
+            },
+            {
+                protocol: 'https',
+                hostname: 'lh3.googleusercontent.com',
+            },
+            {
+                protocol: 'https',
+                hostname: 'platform-lookaside.fbsbx.com',
+            },
+            {
+                protocol: 'https',
+                hostname: 'res.cloudinary.com',
             },
         ],
     },

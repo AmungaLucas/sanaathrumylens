@@ -326,7 +326,7 @@ export default function BlogClient({
         "@type": "CollectionPage",
         "name": `Blog Articles${currentPage > 1 ? ` - Page ${currentPage}` : ''}`,
         "description": "Latest articles on architecture, design, and technology",
-        "url": `https://www.sanaathrumylens.com/blogs?page=${currentPage}`,
+        "url": `https://www.sanaathrumylens.co.ke/blogs?page=${currentPage}`,
         "mainEntity": {
             "@type": "ItemList",
             "numberOfItems": posts.length,
@@ -346,7 +346,7 @@ export default function BlogClient({
                         "@type": "Article",
                         "headline": post.title || "Untitled Article",
                         "description": post.excerpt || "",
-                        "url": `https://www.sanaathrumylens.com/blogs/${post.slug || post.id}`,
+                        "url": `https://www.sanaathrumylens.co.ke/blogs/${post.slug || post.id}`,
                         "datePublished": datePublished,
                         "author": {
                             "@type": "Person",
@@ -489,7 +489,6 @@ export default function BlogClient({
                                                             fill
                                                             className="object-cover"
                                                             sizes={viewMode === 'list' ? "192px" : "(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"}
-                                                            unoptimized
                                                         />
                                                     ) : (
                                                         <div className="w-full h-full bg-linear-to-br from-gray-100 to-gray-300 flex items-center justify-center">
@@ -641,7 +640,6 @@ export default function BlogClient({
                                                     fill
                                                     className="object-cover hover:scale-105 transition-transform duration-300"
                                                     sizes="320px"
-                                                    unoptimized
                                                 />
                                             ) : (
                                                 <div className="w-full h-full bg-linear-to-br from-gray-100 to-gray-300 flex items-center justify-center">
@@ -701,7 +699,6 @@ export default function BlogClient({
                                                                 width={64}
                                                                 height={64}
                                                                 className="w-full h-full object-cover"
-                                                                unoptimized
                                                             />
                                                         )}
                                                     </div>

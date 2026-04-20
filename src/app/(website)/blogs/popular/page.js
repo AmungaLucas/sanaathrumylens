@@ -99,7 +99,6 @@ export default async function PopularArticlesPage() {
                                             className="object-cover hover:scale-105 transition-transform duration-300"
                                             sizes="(max-width: 768px) 100vw, 50vw"
                                             priority={index === 0}
-                                            unoptimized
                                         />
                                     ) : (
                                         <div className="w-full h-full bg-linear-to-br from-gray-200 to-gray-400"></div>
@@ -182,7 +181,6 @@ export default async function PopularArticlesPage() {
                                                 fill
                                                 className="object-cover hover:scale-105 transition-transform duration-300"
                                                 sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                                                unoptimized
                                             />
                                         ) : (
                                             <div className="w-full h-full bg-linear-to-br from-gray-200 to-gray-400"></div>

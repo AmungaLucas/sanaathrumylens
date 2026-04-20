@@ -28,7 +28,6 @@ export default function RecentStories({ stories }) {
                                     className="object-cover group-hover:scale-105 transition-transform duration-300"
                                     sizes="56px"
                                     loading="lazy"
-                                    unoptimized
                                 />
                             ) : (
                                 <div className="w-full h-full bg-linear-to-br from-gray-200 to-gray-300 flex items-center justify-center">

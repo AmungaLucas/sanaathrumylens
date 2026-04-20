@@ -196,7 +196,6 @@ export default async function AuthorPage({ params }) {
                                         width={80}
                                         height={80}
                                         className="rounded-full"
-                                        unoptimized
                                     />
                                 </div>
                                 <div className="min-w-0">
@@ -242,7 +241,6 @@ export default async function AuthorPage({ params }) {
                                             alt={post.title}
                                             fill
                                             className="absolute inset-0 w-full h-full object-cover rounded-t-lg group-hover:scale-105 transition-transform"
-                                            unoptimized
                                         />
                                     </div>
                                     <div className="p-4">

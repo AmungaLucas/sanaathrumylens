@@ -1,26 +1,27 @@
 import { generateBlogMetadata } from "@/app/seo/meta";
 import BlogPostClient from "./BlogPostClient";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { headers } from "next/headers";
 import Link from "next/link";
 import { FileQuestion, Home } from "lucide-react";
 
+// ISR: Revalidate page every 60 seconds
+export const revalidate = 60;
+
 // ── Internal fetch helper ────────────────────────────────────
 
-async function getBaseUrl() {
-    const headersList = await headers();
-    const host = headersList.get('host') || headersList.get('x-forwarded-host');
-    const protocol = headersList.get('x-forwarded-proto') || 'https';
-    if (host) return `${protocol}://${host}`;
+function getBaseUrl() {
+    // Use environment variables only (no headers/cookies to avoid forcing dynamic rendering)
+    if (process.env.NEXT_PUBLIC_INTERNAL_URL) return process.env.NEXT_PUBLIC_INTERNAL_URL;
     if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
     if (process.env.NEXT_PUBLIC_BASE_URL) return process.env.NEXT_PUBLIC_BASE_URL;
     return 'http://localhost:3000';
 }
 
 async function apiFetch(path, options = {}) {
-    const base = await getBaseUrl();
+    const base = getBaseUrl();
     const url = `${base}${path}`;
-    const res = await fetch(url, { cache: 'no-store', ...options });
+    const { revalidate = 60, ...fetchOptions } = options;
+    const res = await fetch(url, { next: { revalidate }, ...fetchOptions });
     if (!res.ok) throw new Error(`API error: ${res.status}`);
     const json = await res.json();
     if (!json.success) throw new Error(json.error || 'API request failed');
@@ -31,21 +32,21 @@ async function apiFetch(path, options = {}) {
 
 async function fetchPostBySlug(slug) {
     try {
-        const post = await apiFetch(`/api/posts/${slug}`);
+        const post = await apiFetch(`/api/posts/${slug}`, { revalidate: 60 });
         return post || null;
     } catch { return null; }
 }
 
 async function fetchRecentStories(limit = 4) {
     try {
-        const data = await apiFetch(`/api/posts?limit=${limit}`);
+        const data = await apiFetch(`/api/posts?limit=${limit}`, { revalidate: 60 });
         return data.posts || [];
     } catch { return []; }
 }
 
 async function fetchCategories() {
     try {
-        const data = await apiFetch('/api/categories');
+        const data = await apiFetch('/api/categories', { revalidate: 300 });
         return data.categories || [];
     } catch { return []; }
 }
@@ -53,7 +54,7 @@ async function fetchCategories() {
 async function fetchArticlesByAuthor(authorId, excludePostId, limit = 4) {
     try {
         // API doesn't support author filtering, so fetch a larger set and filter client-side
-        const data = await apiFetch('/api/posts?limit=20');
+        const data = await apiFetch('/api/posts?limit=20', { revalidate: 60 });
         const posts = (data.posts || [])
             .filter(p => p.author?.id === authorId && p.id !== excludePostId)
             .slice(0, limit);
@@ -65,7 +66,7 @@ async function fetchRelatedPosts(categoryIds, excludePostId, limit = 4) {
     if (!categoryIds || !categoryIds.length) return [];
     try {
         // API doesn't support related posts, so fetch recent and filter by category overlap
-        const data = await apiFetch('/api/posts?limit=20');
+        const data = await apiFetch('/api/posts?limit=20', { revalidate: 60 });
         const posts = (data.posts || [])
             .filter(p => {
                 if (p.id === excludePostId) return false;

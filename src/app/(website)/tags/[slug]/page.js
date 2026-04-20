@@ -86,7 +86,6 @@ export default async function TagPage({ params }) {
                                                     width={96}
                                                     height={96}
                                                     className="w-full h-full object-cover rounded"
-                                                    unoptimized
                                                 />
                                             </div>
                                         )}

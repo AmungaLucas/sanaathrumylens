@@ -2,7 +2,10 @@
 // JWT authentication utility library
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'sanaa-super-secret-key-change-in-production-2024';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is required. Set it in .env.local or Vercel environment variables.');
+}
 const JWT_EXPIRES_IN = '7d'; // 7 days
 
 /**

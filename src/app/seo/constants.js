@@ -6,7 +6,7 @@ export const DEFAULT_DESCRIPTION =
     "High-quality articles, insights, and updates on architecture, design, and technology."
 
 export const DEFAULT_OG_IMAGE = "/og/default-og.png"
-export const TWITTER_HANDLE = "@yoursite"
+export const TWITTER_HANDLE = "@sanaathrumylens"
 export const SITE_KEYWORDS = "architecture, design, technology, blog, Kenya, articles, insights";
 export const SITE_LANGUAGE = "en";
 export const SITE_LOCALE = "en_KE";

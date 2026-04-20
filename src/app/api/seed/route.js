@@ -5,6 +5,14 @@ import { initDatabase, query, getDbType } from '@/lib/db';
 import { seedDatabase } from '@/lib/seed';
 
 export async function POST() {
+  // Only allow seeding in development
+  if (process.env.NODE_ENV === 'production') {
+    return NextResponse.json(
+      { error: 'This endpoint is disabled in production' },
+      { status: 403 }
+    );
+  }
+
   try {
     console.log('🌱 Seed API called');
 

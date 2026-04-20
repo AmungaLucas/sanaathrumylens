@@ -1,6 +1,7 @@
 // src/app/events/[slug]/EventClientPage.jsx
 "use client";
 import { useState, useEffect, useCallback } from 'react';
+import { sanitizeHtml } from '@/lib/sanitize';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
@@ -343,7 +344,6 @@ export default function EventClientPage({
                                         className="object-cover"
                                         sizes="(max-width: 1024px) 100vw, 66vw"
                                         priority
-                                        unoptimized
                                     />
                                 </div>
                             )}
@@ -403,7 +403,7 @@ export default function EventClientPage({
 
                             {/* Event Description */}
                             <div className="prose prose-lg max-w-none mb-8">
-                                <div className="text-[#4A342E]" dangerouslySetInnerHTML={{ __html: event.description }} />
+                                <div className="text-[#4A342E]" dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.description) }} />
                             </div>
 
                             {/* Schedule (if available) */}
@@ -605,7 +605,6 @@ export default function EventClientPage({
                                                     fill
                                                     className="object-cover hover:scale-105 transition-transform duration-300"
                                                     sizes="(max-width: 768px) 100vw, 33vw"
-                                                    unoptimized
                                                 />
                                             ) : (
                                                 <div className="w-full h-full bg-linear-to-br from-[#F5F1EB] to-[#F0E8D9]"></div>

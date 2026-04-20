@@ -3,6 +3,9 @@
 import { query, initDatabase } from '@/lib/db';
 import { buildPostQuery, buildPostCountQuery, formatPost, successResponse, errorResponse } from '@/lib/apiHelper';
 
+// ISR: Revalidate cached responses every 60 seconds
+export const revalidate = 60;
+
 let dbReady = false;
 let dbAvailable = false;
 async function ensureDb() {
@@ -36,7 +39,7 @@ export async function GET(request) {
       tag: searchParams.get('tag') || '',
       search: searchParams.get('search') || '',
       featured: searchParams.get('featured') || '',
-      status: searchParams.get('status') || 'published',
+      status: searchParams.get('status') === 'draft' ? 'published' : (searchParams.get('status') || 'published'),
     };
 
     const { sql, values } = buildPostQuery(BASE_SELECT, params);

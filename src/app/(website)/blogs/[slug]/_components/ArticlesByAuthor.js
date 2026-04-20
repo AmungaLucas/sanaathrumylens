@@ -28,7 +28,6 @@ export default function ArticlesByAuthor({ articles, authorName = "This Author" 
                                 className="object-cover"
                                 sizes="56px"
                                 loading="lazy"
-                                unoptimized
                             />
                         ) : (
                             <div className="w-full h-full bg-linear-to-br from-gray-200 to-gray-400"></div>

@@ -1,6 +1,8 @@
 import { generateHomeMetadata } from '../seo/meta';
+import { sanitizeHtml } from '@/lib/sanitize';
 import { SITE_NAME, SITE_URL } from '../seo/constants';
-import { cookies, headers } from 'next/headers';
+// ISR: Revalidate page every 60 seconds
+export const revalidate = 60;
 import Link from 'next/link';
 import Image from 'next/image';
 import { MessageCircle, ArrowRight, ChevronRight, Eye, Calendar, User, MapPin } from 'lucide-react';
@@ -13,22 +15,19 @@ export const metadata = generateHomeMetadata();
 
 // ── Internal fetch helper ────────────────────────────────────
 
-async function getBaseUrl() {
-    // On Vercel, use the host from the incoming request headers (most reliable)
-    const headersList = await headers();
-    const host = headersList.get('host') || headersList.get('x-forwarded-host');
-    const protocol = headersList.get('x-forwarded-proto') || 'https';
-    if (host) return `${protocol}://${host}`;
-    // Fallback env vars
+function getBaseUrl() {
+    // Use environment variables only (no headers/cookies to avoid forcing dynamic rendering)
+    if (process.env.NEXT_PUBLIC_INTERNAL_URL) return process.env.NEXT_PUBLIC_INTERNAL_URL;
     if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
     if (process.env.NEXT_PUBLIC_BASE_URL) return process.env.NEXT_PUBLIC_BASE_URL;
     return 'http://localhost:3000';
 }
 
 async function apiFetch(path, options = {}) {
-    const base = await getBaseUrl();
+    const base = getBaseUrl();
     const url = `${base}${path}`;
-    const res = await fetch(url, { cache: 'no-store', ...options });
+    const { revalidate = 60, ...fetchOptions } = options;
+    const res = await fetch(url, { next: { revalidate }, ...fetchOptions });
     if (!res.ok) throw new Error(`API error: ${res.status}`);
     const json = await res.json();
     if (!json.success) throw new Error(json.error || 'API request failed');
@@ -71,25 +70,25 @@ function formatEventDate(startDate, endDate) {
 
 async function fetchArticles(limit = 12) {
     try {
-        const data = await apiFetch(`/api/posts?limit=${limit}`);
+        const data = await apiFetch(`/api/posts?limit=${limit}`, { revalidate: 60 });
         return data.posts || [];
     } catch { return []; }
 }
 
 async function fetchPopularArticles(limit = 3) {
     try {
-        const data = await apiFetch(`/api/posts?sort=views&sortDir=desc&limit=${limit}`);
+        const data = await apiFetch(`/api/posts?sort=views&sortDir=desc&limit=${limit}`, { revalidate: 60 });
         return data.posts || [];
     } catch { return []; }
 }
 
 async function fetchFeaturedArticle() {
     try {
-        const data = await apiFetch('/api/posts?featured=1&limit=1');
+        const data = await apiFetch('/api/posts?featured=1&limit=1', { revalidate: 60 });
         const posts = data.posts || [];
         if (posts.length > 0) return posts[0];
         // Fallback to latest
-        const latest = await apiFetch('/api/posts?limit=1');
+        const latest = await apiFetch('/api/posts?limit=1', { revalidate: 60 });
         const latestPosts = latest.posts || [];
         return latestPosts.length > 0 ? latestPosts[0] : null;
     } catch { return null; }
@@ -97,21 +96,21 @@ async function fetchFeaturedArticle() {
 
 async function fetchRecentStories(limit = 5) {
     try {
-        const data = await apiFetch(`/api/posts?limit=${limit}`);
+        const data = await apiFetch(`/api/posts?limit=${limit}`, { revalidate: 60 });
         return data.posts || [];
     } catch { return []; }
 }
 
 async function fetchCategories() {
     try {
-        const data = await apiFetch('/api/categories');
+        const data = await apiFetch('/api/categories', { revalidate: 300 });
         return data.categories || [];
     } catch { return []; }
 }
 
 async function fetchUpcomingEvents(limit = 4) {
     try {
-        const data = await apiFetch(`/api/events?upcoming=true&limit=${limit}`);
+        const data = await apiFetch(`/api/events?upcoming=true&limit=${limit}`, { revalidate: 60 });
         return data.events || [];
     } catch { return []; }
 }
@@ -119,10 +118,7 @@ async function fetchUpcomingEvents(limit = 4) {
 // ── Page component ───────────────────────────────────────────────
 
 export default async function HomePage() {
-    // Force dynamic rendering
-    await cookies();
-
-    // Fetch all data in parallel
+    // Fetch all data in parallel (ISR-enabled via revalidate export)
     const [articles, popularArticles, featuredArticle, recentStories, categories, upcomingEvents] =
         await Promise.all([
             fetchArticles(12),
@@ -199,7 +195,6 @@ export default async function HomePage() {
                                                         fill
                                                         className="object-cover group-hover:scale-105 transition-transform duration-300"
                                                         priority={false}
-                                                        unoptimized
                                                         sizes="(max-width: 768px) 100vw, 400px"
                                                     />
                                                 ) : (
@@ -225,7 +220,7 @@ export default async function HomePage() {
                                                     {article.title}
                                                 </h3>
                                                 <p className="text-gray-600 text-xs mb-3 line-clamp-2">
-                                                    <span dangerouslySetInnerHTML={{ __html: article.excerpt }} />
+                                                    <span dangerouslySetInnerHTML={{ __html: sanitizeHtml(article.excerpt) }} />
                                                 </p>
                                                 <div className="flex items-center justify-between mt-4 pt-4 border-t">
                                                     <div className="flex items-center gap-2 sm:gap-4 text-xs text-gray-500">
@@ -288,7 +283,6 @@ export default async function HomePage() {
                                                     alt={popularArticles[0].title}
                                                     fill
                                                     priority
-                                                    unoptimized
                                                     sizes="(max-width: 768px) 100vw, 600px"
                                                     className="object-cover group-hover:scale-105 transition-transform duration-300"
                                                 />
@@ -304,7 +298,7 @@ export default async function HomePage() {
                                                 </h3>
                                                 <div
                                                     className="mt-1 text-xs text-gray-200 line-clamp-2"
-                                                    dangerouslySetInnerHTML={{ __html: popularArticles[0].excerpt }}
+                                                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(popularArticles[0].excerpt) }}
                                                 />
                                             </div>
                                         </Link>
@@ -325,7 +319,6 @@ export default async function HomePage() {
                                                             src={article.coverImage || article.featuredImage}
                                                             alt={article.title}
                                                             fill
-                                                            unoptimized
                                                             sizes="128px"
                                                             className="object-cover group-hover:scale-105 transition-transform duration-300"
                                                         />
@@ -342,7 +335,7 @@ export default async function HomePage() {
                                                         </h4>
                                                         <div
                                                             className="mt-1 text-xs text-gray-600 line-clamp-2"
-                                                            dangerouslySetInnerHTML={{ __html: article.excerpt }}
+                                                            dangerouslySetInnerHTML={{ __html: sanitizeHtml(article.excerpt) }}
                                                         />
                                                     </div>
 
@@ -391,7 +384,6 @@ export default async function HomePage() {
                                                     className="object-cover hover:scale-105 transition-transform duration-300"
                                                     priority
                                                     sizes="(max-width: 768px) 100vw, 600px"
-                                                    unoptimized
                                                 />
                                             )}
                                         </div>
@@ -492,7 +484,6 @@ export default async function HomePage() {
                                                         fill
                                                         className="object-cover group-hover:scale-105 transition-transform duration-300"
                                                         priority
-                                                        unoptimized
                                                         sizes="64px"
                                                     />
                                                 ) : (

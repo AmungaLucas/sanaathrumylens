@@ -719,7 +719,6 @@ export default function EventsClientPage() {
                                                     className="object-cover"
                                                     sizes="(max-width: 768px) 100vw, 50vw"
                                                     priority
-                                                    unoptimized
                                                 />
                                             ) : (
                                                 <div className="w-full h-full bg-linear-to-br from-[#F5F1EB] to-[#F0E8D9]"></div>
@@ -824,7 +823,6 @@ export default function EventsClientPage() {
                                                             alt={`${event.title} — Event image`}
                                                             fill
                                                             className="object-cover"
-                                                            unoptimized
                                                             sizes={viewMode === 'list' ? "192px" : "(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"}
                                                         />
                                                     ) : (
@@ -936,7 +934,6 @@ export default function EventsClientPage() {
                                                                 fill
                                                                 className="object-cover"
                                                                 sizes={viewMode === 'list' ? "192px" : "(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"}
-                                                                unoptimized
                                                             />
                                                         ) : (
                                                             <div className="w-full h-full bg-linear-to-br from-[#F5F1EB] to-[#F0E8D9]"></div>

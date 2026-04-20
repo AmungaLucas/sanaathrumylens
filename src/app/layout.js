@@ -49,6 +49,9 @@ export default function RootLayout({ children }) {
     return (
         <html lang="en">
             <head>
+                {/* Web App Manifest */}
+                <link rel="manifest" href="/manifest.json" />
+                <meta name="theme-color" content="#ea580c" />
                 {/* Google AdSense Script */}
                 <script
                     async

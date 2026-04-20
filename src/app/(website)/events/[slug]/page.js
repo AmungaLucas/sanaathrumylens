@@ -5,6 +5,9 @@ import { query, initDatabase } from '@/lib/db';
 import { formatEvent } from '@/lib/apiHelper';
 import EventClientPage from './EventClientPage';
 
+// ISR: Revalidate page every 60 seconds
+export const revalidate = 60;
+
 async function ensureDb() {
     return await initDatabase();
 }

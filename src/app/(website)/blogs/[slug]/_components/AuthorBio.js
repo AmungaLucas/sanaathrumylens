@@ -20,7 +20,6 @@ export default function AuthorBio({ author }) {
                     height={80}
                     className="rounded-full object-cover"
                     loading="lazy"
-                    unoptimized
                 />
                 <h3 className="font-bold text-lg mb-1 pt-1.5">
                     {name}

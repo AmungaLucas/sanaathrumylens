@@ -127,7 +127,6 @@ export default async function RecentArticlesPage() {
                                         fill
                                         className="object-cover"
                                         sizes="64px"
-                                        unoptimized
                                     />
                                 ) : (
                                     <div className="w-full h-full bg-linear-to-br from-gray-200 to-gray-400"></div>

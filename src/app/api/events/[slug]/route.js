@@ -3,6 +3,9 @@
 import { query, initDatabase } from '@/lib/db';
 import { formatEvent, successResponse, errorResponse } from '@/lib/apiHelper';
 
+// ISR: Revalidate cached responses every 60 seconds
+export const revalidate = 60;
+
 let dbReady = false;
 let dbAvailable = false;
 async function ensureDb() {

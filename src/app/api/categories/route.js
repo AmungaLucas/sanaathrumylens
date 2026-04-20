@@ -3,6 +3,9 @@
 import { query, initDatabase } from '@/lib/db';
 import { successResponse, errorResponse } from '@/lib/apiHelper';
 
+// ISR: Revalidate cached responses every 5 minutes (categories rarely change)
+export const revalidate = 300;
+
 let dbReady = false;
 let dbAvailable = false;
 async function ensureDb() {
